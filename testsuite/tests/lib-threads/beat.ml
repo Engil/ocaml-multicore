@@ -1,7 +1,7 @@
 (* TEST
 
 * hassysthreads
-include systhreads
+include dthreads
 ** bytecode
 ** native
 

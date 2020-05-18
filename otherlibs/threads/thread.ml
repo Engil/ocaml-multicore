@@ -411,9 +411,6 @@ let task spin parent procedure initial () =
         Queue.iter Verbose.notify ready
   in
   match procedure initial with
-  | effect _ k ->
-      log 'E';
-      discontinue k Unhandled
   | exception Exit ->
       log 'X';
       Domain.Sync.critical_section finish;

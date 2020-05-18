@@ -11,7 +11,7 @@ OCAMLC=$(OCAMLRUN) $(ROOTDIR)/ocamlc $(LIBS)
 OCAMLOPT=$(OCAMLRUN) $(ROOTDIR)/ocamlopt $(LIBS)
 OCAMLMKLIB=$(OCAMLRUN) $(ROOTDIR)/tools/ocamlmklib
 
-COMPFLAGS=-w +33..39 -warn-error A -g -bin-annot -safe-string
+COMPFLAGS=-w +33..39 -g  -safe-string
 ifeq "$(FLAMBDA)" "true"
 OPTCOMPFLAGS=-O3
 else
@@ -74,11 +74,11 @@ $(LIBNAME).cmxa: $(CMXFILES)
 # twice, each time with different options).
 
 externals-bytecode.$(O): externals.c $(HEADER)
-	$(CC) -c $(CFLAGS) $(CPPFLAGS) -I$(ROOTDIR)/byterun  \
+	$(CC) -c $(CFLAGS) $(CPPFLAGS) -I$(ROOTDIR)/runtime  \
 	  $(SHAREDCCCOMPOPTS) $(OUTPUTOBJ)$@ $<
 
 externals-native.$(O): externals.c $(HEADER)
-	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(ROOTDIR)/asmrun -I$(ROOTDIR)/byterun \
+	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(ROOTDIR)/asmrun -I$(ROOTDIR)/runtime \
 	  $(SHAREDCCCOMPOPTS) -DNATIVE_CODE \
 	  -DTARGET_$(ARCH) -DMODEL_$(MODEL) -DSYS_$(SYSTEM) \
 	  $(OUTPUTOBJ)$@ -c $<
