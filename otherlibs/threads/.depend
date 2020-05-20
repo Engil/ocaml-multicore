@@ -1,12 +1,64 @@
-thread.cmi:
-thread.cmo: thread.cmi
-thread.cmx: thread.cmi
-mutex.cmi: thread.cmi
-mutex.cmo: mutex.cmi
-mutex.cmx: mutex.cmi thread.cmx
-condition.cmi: mutex.cmi
-condition.cmo: condition.cmi
-condition.cmx: condition.cmi mutex.cmx thread.cmx
-event.cmi:
-event.cmo: event.cmi thread.cmi mutex.cmi condition.cmi
-event.cmx: event.cmi thread.cmx mutex.cmx condition.cmx
+condition.cmo : \
+    thread.cmi \
+    mutex.cmi \
+    condition.cmi
+condition.cmx : \
+    thread.cmx \
+    mutex.cmx \
+    condition.cmi
+condition.cmi : \
+    mutex.cmi
+event.cmo : \
+    mutex.cmi \
+    condition.cmi \
+    event.cmi
+event.cmx : \
+    mutex.cmx \
+    condition.cmx \
+    event.cmi
+event.cmi :
+mutex.cmo : \
+    thread.cmi \
+    mutex.cmi
+mutex.cmx : \
+    thread.cmx \
+    mutex.cmi
+mutex.cmi : \
+    thread.cmi
+thread.cmo : \
+    thread.cmi
+thread.cmx : \
+    thread.cmi
+thread.cmi :
+condition.cmo : \
+    thread.cmi \
+    mutex.cmi \
+    condition.cmi
+condition.cmx : \
+    thread.cmx \
+    mutex.cmx \
+    condition.cmi
+condition.cmi : \
+    mutex.cmi
+event.cmo : \
+    mutex.cmi \
+    condition.cmi \
+    event.cmi
+event.cmx : \
+    mutex.cmx \
+    condition.cmx \
+    event.cmi
+event.cmi :
+mutex.cmo : \
+    thread.cmi \
+    mutex.cmi
+mutex.cmx : \
+    thread.cmx \
+    mutex.cmi
+mutex.cmi : \
+    thread.cmi
+thread.cmo : \
+    thread.cmi
+thread.cmx : \
+    thread.cmi
+thread.cmi :
