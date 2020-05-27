@@ -1,7 +1,6 @@
 LIBNAME=threads
 COBJS=externals.$(O)
-CLIBNAME=camlthreads
-CAMLOBJS=thread.cmo event.cmo condition.cmo mutex.cmo
+CAMLOBJS=thread.cmo mutex.cmo condition.cmo event.cmo
 
 include ../Makefile.otherlibs.common
 
