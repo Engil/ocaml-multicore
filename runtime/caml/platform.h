@@ -123,7 +123,7 @@ void caml_mem_unmap(void* mem, uintnat size);
 static inline void check_err(char* action, int err, caml_plat_mutex *m)
 {
   if (err) {
-    fprintf(stderr, "at %p\n", (void *) m);
+    fprintf(stderr, "(%ld) at %p\n", pthread_self(), (void *) m);
     caml_fatal_error_arg2("Fatal error during %s", action, ": %s\n", strerror(err));
   }
 }
