@@ -120,9 +120,10 @@ void caml_mem_decommit(void* mem, uintnat size);
 void caml_mem_unmap(void* mem, uintnat size);
 
 
-static inline void check_err(char* action, int err)
+static inline void check_err(char* action, int err, caml_plat_mutex *m)
 {
   if (err) {
+    fprintf(stderr, "at %p\n", (void *) m);
     caml_fatal_error_arg2("Fatal error during %s", action, ": %s\n", strerror(err));
   }
 }
@@ -138,7 +139,7 @@ static __thread int lockdepth;
 
 static inline void caml_plat_lock(caml_plat_mutex* m)
 {
-  check_err("lock", pthread_mutex_lock(m));
+  check_err("lock", pthread_mutex_lock(m), m);
   DEBUG_LOCK(m);
 }
 
@@ -148,7 +149,7 @@ static inline int caml_plat_try_lock(caml_plat_mutex* m)
   if (r == EBUSY) {
     return 0;
   } else {
-    check_err("try_lock", r);
+    check_err("try_lock", r, m);
     DEBUG_LOCK(m);
     return 1;
   }
@@ -157,7 +158,7 @@ static inline int caml_plat_try_lock(caml_plat_mutex* m)
 static inline void caml_plat_unlock(caml_plat_mutex* m)
 {
   DEBUG_UNLOCK(m);
-  check_err("unlock", pthread_mutex_unlock(m));
+  check_err("unlock", pthread_mutex_unlock(m), m);
 }
 
 
