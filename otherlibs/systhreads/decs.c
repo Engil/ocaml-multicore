@@ -123,6 +123,7 @@ static void caml_dec_main_lock_init(struct caml_dec_main_lock *m) {
   atomic_store_rel(&m->busy, 1);
   atomic_store_rel(&m->waiters, 0);
   atomic_store_rel(&m->backup_thread_on, 0);
+  caml_bt_acquire_domain_lock();
   return;
 };
 
