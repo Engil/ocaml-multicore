@@ -176,10 +176,10 @@ static void caml_dec_main_lock_yield(struct caml_dec_main_lock * m)
 
   atomic_store_rel(&m->busy, 0);
 
-  if (atomic_load_acq(&m->backup_thread_on) == 0) {
-    atomic_store_rel(&m->backup_thread_on, 1);
-    caml_bt_enter_blocking_section_hook();
-  }
+  /* if (atomic_load_acq(&m->backup_thread_on) == 0) { */
+  /*   atomic_store_rel(&m->backup_thread_on, 1); */
+  /*   caml_bt_enter_blocking_section_hook(); */
+  /* } */
   caml_plat_signal(&m->free);
   atomic_fetch_add(&m->waiters, +1);
   do {
@@ -193,10 +193,10 @@ static void caml_dec_main_lock_yield(struct caml_dec_main_lock * m)
   atomic_store_rel(&m->busy, 1);
   atomic_fetch_add(&m->waiters, -1);
 
-  if (atomic_load_acq(&m->backup_thread_on)) {
-    atomic_store_rel(&m->backup_thread_on, 0);
-    caml_bt_leave_blocking_section_hook();
-  }
+  /* if (atomic_load_acq(&m->backup_thread_on)) { */
+  /*   atomic_store_rel(&m->backup_thread_on, 0); */
+  /*   caml_bt_leave_blocking_section_hook(); */
+  /* } */
 
   caml_plat_unlock(&m->lock);
 
