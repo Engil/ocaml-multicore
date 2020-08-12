@@ -51,6 +51,7 @@ struct caml_dec_main_lock {
   caml_plat_cond free;
   atomic_uintnat busy;
   atomic_uintnat waiters;
+  atomic_uintnat backup_thread_on;
 };
 
 #ifdef NATIVE_CODE
@@ -121,6 +122,7 @@ static void caml_dec_main_lock_init(struct caml_dec_main_lock *m) {
   caml_plat_cond_init(&m->free, &m->lock);
   atomic_store_rel(&m->busy, 1);
   atomic_store_rel(&m->waiters, 0);
+  atomic_store_rel(&m->backup_thread_on, 0);
   return;
 };
 
@@ -133,6 +135,10 @@ static void caml_dec_main_lock_acquire(struct caml_dec_main_lock *m)
     atomic_fetch_add(&m->waiters, -1);
   }
   atomic_store_rel(&m->busy, 1);
+  if (atomic_load_acq(&m->backup_thread_on)) {
+    atomic_store_rel(&m->backup_thread_on, 0);
+    caml_bt_leave_blocking_section_hook();
+  }
   caml_plat_unlock(&m->lock);
 }
 
@@ -140,6 +146,13 @@ static void caml_dec_main_lock_release(struct caml_dec_main_lock * m)
 {
   caml_plat_lock(&m->lock);
   atomic_store_rel(&m->busy, 0);
+  // if busy = 0, it means no thread was running code
+  // thus we need to notify the backup thread.
+  if (atomic_load_acq(&m->waiters) == 0 &&
+      atomic_load_acq(&m->backup_thread_on) == 0) {
+    atomic_store_rel(&m->backup_thread_on, 1);
+    caml_bt_enter_blocking_section_hook();
+  }
   caml_plat_signal(&m->free);
   caml_plat_unlock(&m->lock);
 }
@@ -162,6 +175,11 @@ static void caml_dec_main_lock_yield(struct caml_dec_main_lock * m)
   }
 
   atomic_store_rel(&m->busy, 0);
+
+  if (atomic_load_acq(&m->backup_thread_on) == 0) {
+    atomic_store_rel(&m->backup_thread_on, 1);
+    caml_bt_enter_blocking_section_hook();
+  }
   caml_plat_signal(&m->free);
   atomic_fetch_add(&m->waiters, +1);
   do {
@@ -171,8 +189,15 @@ static void caml_dec_main_lock_yield(struct caml_dec_main_lock * m)
        wakeup, which are rare at best.) */
        caml_plat_wait(&m->free);
   } while (atomic_load_acq(&m->busy));
+
   atomic_store_rel(&m->busy, 1);
   atomic_fetch_add(&m->waiters, -1);
+
+  if (atomic_load_acq(&m->backup_thread_on)) {
+    atomic_store_rel(&m->backup_thread_on, 0);
+    caml_bt_leave_blocking_section_hook();
+  }
+
   caml_plat_unlock(&m->lock);
 
   return;
@@ -184,17 +209,22 @@ static void caml_dec_scan_roots(scanning_action action, void *fdata, struct doma
 
   dec = Current_dec;
 
-  do {
-    (*action)(fdata, dec->descr, &dec->descr);
+  // a GC could be triggered before current_dec is initialized
+  if (dec != NULL) {
+    do {
+      (*action)(fdata, dec->descr, &dec->descr);
 
-    if (dec != Current_dec) {
-      if (dec->current_stack != NULL)
-        caml_do_local_roots(action, fdata, dec->local_roots, dec->current_stack, 0);
-    }
-    dec = dec->next;
-  } while (dec != Current_dec);
+      if (dec != Current_dec) {
+	if (dec->current_stack != NULL)
+	  caml_do_local_roots(action, fdata, dec->local_roots, dec->current_stack, 0);
+      }
+      dec = dec->next;
+    } while (dec != Current_dec);
+
+  };
 
   if (prev_scan_roots_hook != NULL) (*prev_scan_roots_hook)(action, fdata, self);
+
   return;
 }
 
@@ -255,6 +285,7 @@ static caml_dec_t caml_dec_new_info(void)
   struct domain *d;
 
   d = caml_domain_self();
+  dec = NULL;
   dec = (caml_dec_t) caml_stat_alloc_noexc(sizeof(struct caml_dec_struct));
   if (dec == NULL) return NULL;
 
@@ -317,35 +348,46 @@ static int dec_atfork(void (*fn)(void))
   return pthread_atfork(NULL, NULL, fn);
 }
 
+CAMLprim value caml_dec_initialize(value unit);
+
+static void caml_dec_domain_start_hook(void) {
+  caml_dec_initialize(Val_unit);
+}
 
 CAMLprim value caml_dec_initialize(value unit)
 {
   // FIXME: init guard missing
   CAMLparam0();
 
+  caml_dec_t new_dec;
+
   caml_dec_main_lock_init(&Dec_main_lock);
 
-  Current_dec =
+  new_dec =
     (caml_dec_t) caml_stat_alloc_noexc(sizeof(struct caml_dec_struct));
 
-  Current_dec->descr = caml_dec_new_descriptor(Val_unit);
-  Current_dec->next = Current_dec;
-  Current_dec->prev = Current_dec;
+  new_dec->descr = caml_dec_new_descriptor(Val_unit);
+  new_dec->next = new_dec;
+  new_dec->prev = new_dec;
 
   #ifdef NATIVE_CODE
-  Current_dec->exit_buf = &caml_termination_jmpbuf;
+  new_dec->exit_buf = &caml_termination_jmpbuf;
   #endif
 
-  prev_scan_roots_hook = caml_scan_roots_hook;
-  caml_scan_roots_hook = caml_dec_scan_roots;
-
-  caml_enter_blocking_section_hook = caml_dec_enter_blocking_section;
-  caml_leave_blocking_section_hook = caml_dec_leave_blocking_section;
+  // Hooks setup, if caml_scan_roots_hook is set, it was done already.
+  if (caml_scan_roots_hook != caml_dec_scan_roots) {
+    prev_scan_roots_hook = caml_scan_roots_hook;
+    caml_scan_roots_hook = caml_dec_scan_roots;
+    caml_enter_blocking_section_hook = caml_dec_enter_blocking_section;
+    caml_leave_blocking_section_hook = caml_dec_leave_blocking_section;
+    caml_domain_start_hook = caml_dec_domain_start_hook;
+  };
 
   pthread_key_create(&Dec_key, NULL);
-  pthread_setspecific(Dec_key, (void *) Current_dec);
+  pthread_setspecific(Dec_key, (void *) new_dec);
 
-  All_decs = Current_dec;
+  All_decs = new_dec;
+  Current_dec = new_dec;
 
   dec_atfork(caml_dec_reinitialize);
 

@@ -447,6 +447,14 @@ static void install_backup_thread (dom_internal* di)
   }
 }
 
+static void caml_domain_start_default(void)
+{
+  return;
+}
+
+CAMLexport void (*caml_domain_start_hook)(void) =
+   caml_domain_start_default;
+
 static void domain_terminate();
 
 static void* domain_thread_func(void* v)
@@ -472,6 +480,7 @@ static void* domain_thread_func(void* v)
     install_backup_thread(domain_self);
     caml_gc_log("Domain starting (unique_id = %"ARCH_INTNAT_PRINTF_FORMAT"u)",
                 domain_self->interruptor.unique_id);
+    caml_domain_start_hook();
     caml_callback(caml_read_root(callback), Val_unit);
     caml_delete_root(callback);
     domain_terminate();
