@@ -915,7 +915,14 @@ void caml_handle_gc_interrupt() {
   }
 }
 
-CAMLexport void caml_bt_leave_blocking_section_hook(void)
+CAMLexport void caml_bt_acquire_domain_lock(void)
+{
+  dom_internal* self = domain_self;
+  caml_plat_lock(&self->domain_lock);
+  return;
+}
+
+CAMLexport void caml_bt_enter_ocaml(void)
 {
   dom_internal* self = domain_self;
 
@@ -926,12 +933,17 @@ CAMLexport void caml_bt_leave_blocking_section_hook(void)
     caml_plat_unlock(&self->interruptor.lock);
   }
 
-  caml_plat_lock(&self->domain_lock);
-
   return;
 }
 
-CAMLexport void caml_bt_enter_blocking_section_hook(void)
+CAMLexport void caml_bt_release_domain_lock(void)
+{
+  dom_internal* self = domain_self;
+  caml_plat_unlock(&self->domain_lock);
+  return;
+}
+
+CAMLexport void caml_bt_exit_ocaml(void)
 {
   dom_internal* self = domain_self;
 
@@ -941,20 +953,21 @@ CAMLexport void caml_bt_enter_blocking_section_hook(void)
     caml_plat_signal(&self->domain_cond);
   }
 
-  caml_plat_unlock(&self->domain_lock);
 
   return;
 }
 
 static void caml_enter_blocking_section_default(void)
 {
-  caml_bt_enter_blocking_section_hook();
+  caml_bt_exit_ocaml();
+  caml_bt_release_domain_lock();
   return;
 }
 
 static void caml_leave_blocking_section_default(void)
 {
-  caml_bt_leave_blocking_section_hook();
+  caml_bt_enter_ocaml();
+  caml_bt_acquire_domain_lock();
   return;
 }
 

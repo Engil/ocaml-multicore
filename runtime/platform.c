@@ -17,9 +17,9 @@ void caml_plat_mutex_init(caml_plat_mutex* m)
   pthread_mutexattr_t ma;
   pthread_mutexattr_init(&ma);
   pthread_mutexattr_settype(&ma, PTHREAD_MUTEX_ERRORCHECK_NP);
-  check_err("mutex_init", pthread_mutex_init(m, &ma));
+  check_err("mutex_init", pthread_mutex_init(m, &ma), m);
 #else
-  check_err("mutex_init", pthread_mutex_init(m, 0));
+  check_err("mutex_init", pthread_mutex_init(m, 0), m);
 #endif
 }
 
@@ -33,7 +33,7 @@ void caml_plat_assert_locked(caml_plat_mutex* m)
   } else if (r == 0) {
     caml_fatal_error("Required mutex not locked");
   } else {
-    check_err("assert_locked", r);
+    check_err("assert_locked", r, m);
   }
 #endif
 }
@@ -47,7 +47,7 @@ void caml_plat_assert_all_locks_unlocked()
 
 void caml_plat_mutex_free(caml_plat_mutex* m)
 {
-  check_err("mutex_free", pthread_mutex_destroy(m));
+  check_err("mutex_free", pthread_mutex_destroy(m), m);
 }
 
 static void caml_plat_cond_init_aux(caml_plat_cond *cond)
@@ -82,7 +82,7 @@ void caml_plat_cond_set_mutex(caml_plat_cond *cond, caml_plat_mutex* m)
 void caml_plat_wait(caml_plat_cond* cond)
 {
   caml_plat_assert_locked(cond->mutex);
-  check_err("wait", pthread_cond_wait(&cond->cond, cond->mutex));
+  check_err("wait", pthread_cond_wait(&cond->cond, cond->mutex), cond->mutex);
 }
 
 int caml_plat_timedwait(caml_plat_cond* cond, int64_t until)
@@ -108,18 +108,18 @@ int caml_plat_timedwait(caml_plat_cond* cond, int64_t until)
 void caml_plat_broadcast(caml_plat_cond* cond)
 {
   caml_plat_assert_locked(cond->mutex);
-  check_err("cond_broadcast", pthread_cond_broadcast(&cond->cond));
+  check_err("cond_broadcast", pthread_cond_broadcast(&cond->cond), NULL);
 }
 
 void caml_plat_signal(caml_plat_cond* cond)
 {
   caml_plat_assert_locked(cond->mutex);
-  check_err("cond_signal", pthread_cond_signal(&cond->cond));
+  check_err("cond_signal", pthread_cond_signal(&cond->cond), NULL);
 }
 
 void caml_plat_cond_free(caml_plat_cond* cond)
 {
-  check_err("cond_free", pthread_cond_destroy(&cond->cond));
+  check_err("cond_free", pthread_cond_destroy(&cond->cond), NULL);
   cond->mutex=0;
 }
 
