@@ -135,9 +135,10 @@ static void caml_dec_main_lock_acquire(struct caml_dec_main_lock *m)
     atomic_fetch_add(&m->waiters, -1);
   }
   atomic_store_rel(&m->busy, 1);
+  caml_bt_acquire_domain_lock();
   if (atomic_load_acq(&m->backup_thread_on)) {
     atomic_store_rel(&m->backup_thread_on, 0);
-    caml_bt_leave_blocking_section_hook();
+    caml_bt_enter_ocaml();
   }
   caml_plat_unlock(&m->lock);
 }
@@ -148,10 +149,11 @@ static void caml_dec_main_lock_release(struct caml_dec_main_lock * m)
   atomic_store_rel(&m->busy, 0);
   // if busy = 0, it means no thread was running code
   // thus we need to notify the backup thread.
+  caml_bt_release_domain_lock();
   if (atomic_load_acq(&m->waiters) == 0 &&
       atomic_load_acq(&m->backup_thread_on) == 0) {
     atomic_store_rel(&m->backup_thread_on, 1);
-    caml_bt_enter_blocking_section_hook();
+    caml_bt_exit_ocaml();
   }
   caml_plat_signal(&m->free);
   caml_plat_unlock(&m->lock);
