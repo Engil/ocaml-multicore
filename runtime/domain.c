@@ -926,7 +926,7 @@ CAMLexport void caml_bt_leave_blocking_section_hook(void)
     caml_plat_unlock(&self->interruptor.lock);
   }
 
-  caml_plat_lock(&self->domain_lock);
+  //caml_plat_lock(&self->domain_lock);
 
   return;
 }
@@ -941,7 +941,7 @@ CAMLexport void caml_bt_enter_blocking_section_hook(void)
     caml_plat_signal(&self->domain_cond);
   }
 
-  caml_plat_unlock(&self->domain_lock);
+  //caml_plat_unlock(&self->domain_lock);
 
   return;
 }
