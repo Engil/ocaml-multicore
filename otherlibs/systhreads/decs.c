@@ -123,8 +123,34 @@ static void caml_dec_main_lock_init(struct caml_dec_main_lock *m) {
   atomic_store_rel(&m->busy, 1);
   atomic_store_rel(&m->waiters, 0);
   atomic_store_rel(&m->backup_thread_on, 0);
+
   return;
 };
+
+static void caml_dec_bt_lock_acquire(struct caml_dec_main_lock *m) {
+  if (!caml_domain_alone()) {
+    caml_bt_acquire_domain_lock();
+    if (atomic_load_acq(&m->backup_thread_on)) {
+      atomic_store_rel(&m->backup_thread_on, 0);
+      caml_bt_enter_ocaml();
+    }
+  };
+
+  return;
+}
+
+static void caml_dec_bt_lock_release(struct caml_dec_main_lock *m) {
+  if (!caml_domain_alone()) {
+    caml_bt_release_domain_lock();
+    if (atomic_load_acq(&m->waiters) == 0 &&
+	atomic_load_acq(&m->backup_thread_on) == 0) {
+      atomic_store_rel(&m->backup_thread_on, 1);
+      caml_bt_exit_ocaml();
+    }
+  };
+
+  return;
+}
 
 static void caml_dec_main_lock_acquire(struct caml_dec_main_lock *m)
 {
@@ -135,14 +161,10 @@ static void caml_dec_main_lock_acquire(struct caml_dec_main_lock *m)
     atomic_fetch_add(&m->waiters, -1);
   }
   atomic_store_rel(&m->busy, 1);
-  if (!caml_domain_alone()) {
-    caml_bt_acquire_domain_lock();
-    if (atomic_load_acq(&m->backup_thread_on)) {
-      atomic_store_rel(&m->backup_thread_on, 0);
-      caml_bt_enter_ocaml();
-    }
-  };
+  caml_dec_bt_lock_acquire(m);
   caml_plat_unlock(&m->lock);
+
+  return;
 }
 
 static void caml_dec_main_lock_release(struct caml_dec_main_lock * m)
@@ -151,16 +173,11 @@ static void caml_dec_main_lock_release(struct caml_dec_main_lock * m)
   atomic_store_rel(&m->busy, 0);
   // if busy = 0, it means no thread was running code
   // thus we need to notify the backup thread.
-  if (!caml_domain_alone()) {
-    caml_bt_release_domain_lock();
-    if (atomic_load_acq(&m->waiters) == 0 &&
-	atomic_load_acq(&m->backup_thread_on) == 0) {
-      atomic_store_rel(&m->backup_thread_on, 1);
-      caml_bt_exit_ocaml();
-    }
-  };
+  caml_dec_bt_lock_release(m);
   caml_plat_signal(&m->free);
   caml_plat_unlock(&m->lock);
+
+  return;
 }
 
 static void caml_dec_main_lock_yield(struct caml_dec_main_lock * m)
@@ -187,6 +204,7 @@ static void caml_dec_main_lock_yield(struct caml_dec_main_lock * m)
   /*   caml_bt_enter_blocking_section_hook(); */
   /* } */
   caml_plat_signal(&m->free);
+  caml_bt_release_domain_lock();
   atomic_fetch_add(&m->waiters, +1);
   do {
     /* Note: the POSIX spec prevents the above signal from pairing with this
@@ -198,6 +216,7 @@ static void caml_dec_main_lock_yield(struct caml_dec_main_lock * m)
 
   atomic_store_rel(&m->busy, 1);
   atomic_fetch_add(&m->waiters, -1);
+  caml_bt_acquire_domain_lock();
 
   /* if (atomic_load_acq(&m->backup_thread_on)) { */
   /*   atomic_store_rel(&m->backup_thread_on, 0); */
