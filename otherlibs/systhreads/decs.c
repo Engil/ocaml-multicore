@@ -51,7 +51,6 @@ struct caml_dec_main_lock {
   caml_plat_cond free;
   atomic_uintnat busy;
   atomic_uintnat waiters;
-  atomic_uintnat backup_thread_on;
 };
 
 #ifdef NATIVE_CODE
@@ -122,32 +121,33 @@ static void caml_dec_main_lock_init(struct caml_dec_main_lock *m) {
   caml_plat_cond_init(&m->free, &m->lock);
   atomic_store_rel(&m->busy, 1);
   atomic_store_rel(&m->waiters, 0);
-  atomic_store_rel(&m->backup_thread_on, 0);
 
   return;
 };
 
 static void caml_dec_bt_lock_acquire(struct caml_dec_main_lock *m) {
+
   if (!caml_domain_alone()) {
-    caml_bt_acquire_domain_lock();
-    if (atomic_load_acq(&m->backup_thread_on)) {
-      atomic_store_rel(&m->backup_thread_on, 0);
+    if (caml_bt_is_bt_working()) {
       caml_bt_enter_ocaml();
     }
   };
+
+  caml_bt_acquire_domain_lock();
 
   return;
 }
 
 static void caml_dec_bt_lock_release(struct caml_dec_main_lock *m) {
+
   if (!caml_domain_alone()) {
-    caml_bt_release_domain_lock();
     if (atomic_load_acq(&m->waiters) == 0 &&
-	atomic_load_acq(&m->backup_thread_on) == 0) {
-      atomic_store_rel(&m->backup_thread_on, 1);
+	caml_bt_is_bt_working() == 0) {
       caml_bt_exit_ocaml();
     }
   };
+
+  caml_bt_release_domain_lock();
 
   return;
 }
@@ -171,8 +171,6 @@ static void caml_dec_main_lock_release(struct caml_dec_main_lock * m)
 {
   caml_plat_lock(&m->lock);
   atomic_store_rel(&m->busy, 0);
-  // if busy = 0, it means no thread was running code
-  // thus we need to notify the backup thread.
   caml_dec_bt_lock_release(m);
   caml_plat_signal(&m->free);
   caml_plat_unlock(&m->lock);
@@ -199,11 +197,11 @@ static void caml_dec_main_lock_yield(struct caml_dec_main_lock * m)
 
   atomic_store_rel(&m->busy, 0);
 
-  /* if (atomic_load_acq(&m->backup_thread_on) == 0) { */
-  /*   atomic_store_rel(&m->backup_thread_on, 1); */
-  /*   caml_bt_enter_blocking_section_hook(); */
-  /* } */
   caml_plat_signal(&m->free);
+  // releasing the domain lock but not triggering bt messaging
+  // messaging the bt should not be required because yield assumes
+  // that a thread will resume execution (be it the yielding thread
+  // or a waiting thread
   caml_bt_release_domain_lock();
   atomic_fetch_add(&m->waiters, +1);
   do {
@@ -216,12 +214,8 @@ static void caml_dec_main_lock_yield(struct caml_dec_main_lock * m)
 
   atomic_store_rel(&m->busy, 1);
   atomic_fetch_add(&m->waiters, -1);
-  caml_bt_acquire_domain_lock();
 
-  /* if (atomic_load_acq(&m->backup_thread_on)) { */
-  /*   atomic_store_rel(&m->backup_thread_on, 0); */
-  /*   caml_bt_leave_blocking_section_hook(); */
-  /* } */
+  caml_bt_acquire_domain_lock();
 
   caml_plat_unlock(&m->lock);
 
@@ -383,7 +377,6 @@ static void caml_dec_domain_start_hook(void) {
 
 CAMLprim value caml_dec_initialize(value unit)
 {
-  // FIXME: init guard missing
   CAMLparam0();
 
   caml_dec_t new_dec;

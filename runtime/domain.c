@@ -915,6 +915,17 @@ void caml_handle_gc_interrupt() {
   }
 }
 
+CAMLexport inline int caml_bt_is_bt_working(void)
+{
+  dom_internal* self = domain_self;
+  uintnat status = atomic_load_acq(&self->backup_thread_msg);
+  if (status == BT_IN_BLOCKING_SECTION)
+    return 1;
+  else
+    return 0;
+
+}
+
 CAMLexport void caml_bt_acquire_domain_lock(void)
 {
   dom_internal* self = domain_self;
