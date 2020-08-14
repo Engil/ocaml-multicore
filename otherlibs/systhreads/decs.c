@@ -359,8 +359,7 @@ static void caml_dec_reinitialize(void)
   All_decs = Current_dec;
 
   caml_dec_main_lock_init(&Dec_main_lock);
-  if (!caml_domain_alone())
-    caml_bt_acquire_domain_lock();
+  caml_bt_acquire_domain_lock();
   caml_dec_main_lock_release(&Dec_main_lock);
 }
 
