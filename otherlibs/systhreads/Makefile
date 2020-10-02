@@ -23,6 +23,9 @@ OC_CFLAGS += $(SHAREDLIB_CFLAGS)
 
 OC_CPPFLAGS += -I$(ROOTDIR)/runtime
 
+EXTRACAMLFLAGS=-g
+EXTRACFLAGS=-g
+
 NATIVE_CPPFLAGS = \
   -DNATIVE_CODE -DTARGET_$(ARCH) -DMODEL_$(MODEL) -DSYS_$(SYSTEM)
 
@@ -30,8 +33,8 @@ CAMLRUN ?= $(ROOTDIR)/boot/ocamlrun
 
 LIBS = -nostdlib -I $(ROOTDIR)/stdlib -I $(ROOTDIR)/otherlibs/$(UNIXLIB)
 
-CAMLC=$(BEST_OCAMLC) $(LIBS)
-CAMLOPT=$(BEST_OCAMLOPT) $(LIBS)
+CAMLC=$(BEST_OCAMLC) -g $(LIBS)
+CAMLOPT=$(BEST_OCAMLOPT) -g $(LIBS)
 
 MKLIB=$(CAMLRUN) $(ROOTDIR)/tools/ocamlmklib
 COMPFLAGS=-w +33..39 -warn-error A -g -bin-annot -safe-string
@@ -84,7 +87,7 @@ endif
 
 # See remark above: force static linking of libthreadsnat.a
 $(LIBNAME).cmxa: $(THREADS_NCOBJS)
-	$(CAMLOPT) -linkall -a -cclib -lthreadsnat $(PTHREAD_CAML_LINK) -o $@ $^
+	$(CAMLOPT) -linkall -g -a -cclib -lthreadsnat $(PTHREAD_CAML_LINK) -o $@ $^
 
 # Note: I removed "-cclib -lunix" from the line above.
 # Indeed, if we link threads.cmxa, then we must also link unix.cmxa,
@@ -95,12 +98,12 @@ $(LIBNAME).cmxa: $(THREADS_NCOBJS)
 # st_stubs_n.$(O) from the same source file st_stubs.c (it is compiled
 # twice, each time with different options).
 
-st_stubs_n.$(O): OC_CPPFLAGS += $(NATIVE_CPPFLAGS)
+st_stubs_n.$(O): OC_CPPFLAGS += $(NATIVE_CPPFLAGS) -g
 
-st_stubs_b.$(O): st_stubs.c
+st_stubs_b.$(O): st_stubs.c st_posix.h
 	$(CC) -c $(OC_CFLAGS) $(OC_CPPFLAGS) $(OUTPUTOBJ)$@ $<
 
-st_stubs_n.$(O): st_stubs.c
+st_stubs_n.$(O): st_stubs.c st_posix.h
 	$(CC) -c $(OC_CFLAGS) $(OC_CPPFLAGS) $(OUTPUTOBJ)$@ $<
 
 partialclean:

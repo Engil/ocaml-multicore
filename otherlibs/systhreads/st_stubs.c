@@ -18,6 +18,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <caml/signals.h>
+#include "st_posix.h"
 
 /* ML value for a thread descriptor */
 
@@ -27,31 +28,17 @@ struct caml_thread_descr {
   value terminated;
 };
 
-#define Threadstatus_val(v) (* ((thread_event *) Data_custom_val(v)))
+#define Threadstatus_val(v) (* ((st_event *) Data_custom_val(v)))
 #define Ident(v) (((struct caml_thread_descr *)(v))->id)
 #define Clos(v) (((struct caml_thread_descr *)(v))->clos)
 #define Terminated(v) (((struct caml_thread_descr *)(v))->terminated)
 
 /* Event structure */
 
-typedef struct event_struct {
-  caml_plat_mutex lock;         /* to protect contents */
-  int status;                   /* 0 = not triggered, 1 = triggered */
-  caml_plat_cond triggered;     /* signaled when triggered */
-} * thread_event;
-
 static value caml_threadstatus_new (value unit);
-static int thread_event_create(thread_event * res);
 static void caml_threadstatus_terminate (value wrapper);
 
 /* main runtime lock */
-
-struct caml_thread_main_lock {
-  caml_plat_mutex lock;
-  caml_plat_cond free;
-  atomic_uintnat busy;
-  atomic_uintnat waiters;
-};
 
 #ifdef NATIVE_CODE
 extern struct longjmp_buffer caml_termination_jmpbuf;
@@ -93,8 +80,8 @@ typedef struct caml_thread_struct* caml_thread_t;
 struct caml_thread_table {
   caml_thread_t all_decs;
   caml_thread_t current_dec;
-  pthread_key_t thread_key;
-  struct caml_thread_main_lock thread_lock;
+  st_tlskey thread_key;
+  st_masterlock main_lock;
 };
 
 /* thread_table instance, up to Max_domains */
@@ -103,130 +90,12 @@ static struct caml_thread_table thread_table[Max_domains];
 /* unique dec id */
 static atomic_uintnat thread_next_id;
 
-#define Thread_main_lock thread_table[Caml_state->id].thread_lock
+#define Thread_main_lock thread_table[Caml_state->id].main_lock
 #define Thread_key thread_table[Caml_state->id].thread_key
 #define All_decs thread_table[Caml_state->id].all_decs
 #define Current_dec thread_table[Caml_state->id].current_dec
 
 static void (*prev_scan_roots_hook) (scanning_action, void *, struct domain *);
-
-/* main lock's logic, analogous to systhread's master lock. */
-/* The main lock is to be held by a dec that is going to execute OCaml code */
-/* or interfere with the runtime in any way. */
-/* There is one main lock per domain. */
-
-static void caml_thread_main_lock_init(struct caml_thread_main_lock *m) {
-
-  caml_plat_mutex_init(&m->lock);
-  caml_plat_cond_init(&m->free, &m->lock);
-  atomic_store_rel(&m->busy, 1);
-  atomic_store_rel(&m->waiters, 0);
-
-  return;
-};
-
-// For both these functions, we decide to signal the backup thread under
-// specific conditions. However the domain lock should always be owned
-// by the dec currently executing OCaml code.
-
-static void caml_thread_bt_lock_acquire(struct caml_thread_main_lock *m) {
-
-  // We do not want to signal the backup thread is it is not "working"
-  // as it may very well not be, because we could have just resumed
-  // execution from another dec right away.
-  if (caml_bt_is_bt_working()) {
-    caml_bt_enter_ocaml();
-  }
-
-  caml_bt_acquire_domain_lock();
-
-  return;
-}
-
-static void caml_thread_bt_lock_release(struct caml_thread_main_lock *m) {
-
-  // Here we do want to signal the backup thread iff there's
-  // no dec waiting to be scheduled, and the backup thread is currently
-  // idle.
-  if (atomic_load_acq(&m->waiters) == 0 &&
-      caml_bt_is_bt_working() == 0) {
-    caml_bt_exit_ocaml();
-  }
-
-  caml_bt_release_domain_lock();
-
-  return;
-}
-
-static void caml_thread_main_lock_acquire(struct caml_thread_main_lock *m)
-{
-  caml_plat_lock(&m->lock);
-  while (atomic_load_acq(&m->busy)) {
-    atomic_fetch_add(&m->waiters, +1);
-    caml_plat_wait(&m->free);
-    atomic_fetch_add(&m->waiters, -1);
-  }
-  atomic_store_rel(&m->busy, 1);
-  caml_thread_bt_lock_acquire(m);
-  caml_plat_unlock(&m->lock);
-
-  return;
-}
-
-static void caml_thread_main_lock_release(struct caml_thread_main_lock * m)
-{
-  caml_plat_lock(&m->lock);
-  atomic_store_rel(&m->busy, 0);
-  caml_thread_bt_lock_release(m);
-  caml_plat_signal(&m->free);
-  caml_plat_unlock(&m->lock);
-
-  return;
-}
-
-static void caml_thread_main_lock_yield(struct caml_thread_main_lock * m)
-{
-  uintnat waiters;
-
-  caml_plat_lock(&m->lock);
-  /* We must hold the lock to call this. */
-
-  /* We already checked this without the lock, but we might have raced--if
-     there's no waiter, there's nothing to do and no one to wake us if we did
-     wait, so just keep going. */
-  waiters = atomic_load_acq(&m->waiters);
-
-  if (waiters == 0) {
-    caml_plat_unlock(&m->lock);
-    return;
-  }
-
-  atomic_store_rel(&m->busy, 0);
-
-  caml_plat_signal(&m->free);
-  // releasing the domain lock but not triggering bt messaging
-  // messaging the bt should not be required because yield assumes
-  // that a thread will resume execution (be it the yielding thread
-  // or a waiting thread
-  caml_bt_release_domain_lock();
-  atomic_fetch_add(&m->waiters, +1);
-  do {
-    /* Note: the POSIX spec prevents the above signal from pairing with this
-       wait, which is good: we'll reliably continue waiting until the next
-       yield() or enter_blocking_section() call (or we see a spurious condvar
-       wakeup, which are rare at best.) */
-       caml_plat_wait(&m->free);
-  } while (atomic_load_acq(&m->busy));
-
-  atomic_store_rel(&m->busy, 1);
-  atomic_fetch_add(&m->waiters, -1);
-
-  caml_bt_acquire_domain_lock();
-
-  caml_plat_unlock(&m->lock);
-
-  return;
-}
 
 static void caml_thread_scan_roots(scanning_action action, void *fdata, struct domain *self)
 {
@@ -291,16 +160,16 @@ void caml_thread_restore_runtime_state(void)
 
 static void caml_thread_enter_blocking_section(void)
 {
-  Current_dec = pthread_getspecific(Thread_key);
+  Current_dec = st_tls_get(Thread_key);
   caml_thread_save_runtime_state();
-  pthread_setspecific(Thread_key, Current_dec);
-  caml_thread_main_lock_release(&Thread_main_lock);
+  st_tls_set(Thread_key, Current_dec);
+  st_masterlock_release(&Thread_main_lock);
 }
 
 static void caml_thread_leave_blocking_section(void)
 {
-  caml_thread_main_lock_acquire(&Thread_main_lock);
-  Current_dec = pthread_getspecific(Thread_key);
+  st_masterlock_acquire(&Thread_main_lock);
+  Current_dec = st_tls_get(Thread_key);
   caml_thread_restore_runtime_state();
 }
 
@@ -370,13 +239,8 @@ static void caml_thread_reinitialize(void)
   caml_reset_domain_lock();
   caml_bt_acquire_domain_lock();
   // main_lock needs to be initialized and released.
-  caml_thread_main_lock_init(&Thread_main_lock);
-  caml_thread_main_lock_release(&Thread_main_lock);
-}
-
-static int thread_atfork(void (*fn)(void))
-{
-  return pthread_atfork(NULL, NULL, fn);
+  st_masterlock_init(&Thread_main_lock);
+  st_masterlock_release(&Thread_main_lock);
 }
 
 CAMLprim value caml_thread_initialize(value unit);
@@ -391,7 +255,7 @@ CAMLprim value caml_thread_initialize(value unit)
 
   caml_thread_t new_dec;
 
-  caml_thread_main_lock_init(&Thread_main_lock);
+  st_masterlock_init(&Thread_main_lock);
 
   new_dec =
     (caml_thread_t) caml_stat_alloc_noexc(sizeof(struct caml_thread_struct));
@@ -414,13 +278,13 @@ CAMLprim value caml_thread_initialize(value unit)
     caml_domain_start_hook = caml_thread_domain_start_hook;
   };
 
-  pthread_key_create(&Thread_key, NULL);
-  pthread_setspecific(Thread_key, (void *) new_dec);
+  st_tls_newkey(&Thread_key);
+  st_tls_set(Thread_key, (void *) new_dec);
 
   All_decs = new_dec;
   Current_dec = new_dec;
 
-  thread_atfork(caml_thread_reinitialize);
+  st_atfork(caml_thread_reinitialize);
 
   CAMLreturn(Val_unit);
 }
@@ -450,7 +314,7 @@ static void caml_thread_stop(void)
   // valid state to the backup thread.
   Current_dec = Current_dec->next;
   caml_thread_restore_runtime_state();
-  caml_thread_main_lock_release(&Thread_main_lock);
+  st_masterlock_release(&Thread_main_lock);
 }
 
 static void * caml_thread_start(void * v)
@@ -463,10 +327,10 @@ static void * caml_thread_start(void * v)
 
   caml_init_domain_self(dec->domain_id);
 
-  pthread_setspecific(Thread_key, dec);
+  st_tls_set(Thread_key, dec);
 
-  caml_thread_main_lock_acquire(&Thread_main_lock);
-  Current_dec = pthread_getspecific(Thread_key);
+  st_masterlock_acquire(&Thread_main_lock);
+  Current_dec = st_tls_get(Thread_key);
   caml_thread_restore_runtime_state();
 
 #ifdef NATIVE_CODE
@@ -487,25 +351,27 @@ static void * caml_thread_start(void * v)
 CAMLprim value caml_thread_new(value clos)
 {
   CAMLparam1(clos);
-  pthread_t th;
-  pthread_attr_t attr;
-  caml_thread_t dec;
+  caml_thread_t th;
+  st_retcode err;
 
-  pthread_attr_init(&attr);
-  pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+  th = caml_thread_new_info();
+  th->descr = caml_thread_new_descriptor(clos);
 
-  dec = caml_thread_new_info();
-  dec->descr = caml_thread_new_descriptor(clos);
+  th->next = Current_dec->next;
+  th->prev = Current_dec;
 
-  dec->next = Current_dec->next;
-  dec->prev = Current_dec;
+  Current_dec->next->prev = th;
+  Current_dec->next = th;
 
-  Current_dec->next->prev = dec;
-  Current_dec->next = dec;
+  err = st_thread_create(NULL, caml_thread_start, (void *) NULL);
 
-  pthread_create(&th, &attr, caml_thread_start, (void *) dec);
+  if (err != 0) {
+    /* Creation failed, remove thread info block from list of threads */
+    caml_thread_remove_info(th);
+    st_check_error(err, "Thread.create");
+  }
 
-  CAMLreturn(dec->descr);
+  CAMLreturn(th->descr);
 }
 
 CAMLprim value caml_thread_self(value unit)
@@ -523,8 +389,8 @@ CAMLprim value caml_thread_yield(value unit)
   if (atomic_load_acq(&Thread_main_lock.waiters) == 0) return Val_unit;
 
   caml_thread_save_runtime_state();
-  caml_thread_main_lock_yield(&Thread_main_lock);
-  Current_dec = pthread_getspecific(Thread_key);
+  st_masterlock_yield(&Thread_main_lock);
+  Current_dec = st_tls_get(Thread_key);
   caml_thread_restore_runtime_state();
 
   return Val_unit;
@@ -547,7 +413,7 @@ CAMLprim value caml_thread_exit(value unit)
     /* Native-code and (main thread or thread created by OCaml) */
     siglongjmp(exit_buf->buf, 1);
   } else {
-    pthread_exit(NULL);
+    st_thread_exit();
   };
 
   return Val_unit;
@@ -555,11 +421,9 @@ CAMLprim value caml_thread_exit(value unit)
 
 /* events */
 
-static void caml_threadstatus_destroy(thread_event e)
+static void caml_threadstatus_destroy(st_event e)
 {
-  caml_plat_cond_free(&e->triggered);
-  caml_plat_mutex_free(&e->lock);
-  caml_stat_free(e);
+  st_event_destroy(e);
 }
 
 static void caml_threadstatus_finalize(value wrapper)
@@ -580,13 +444,13 @@ CAMLprim value caml_thread_uncaught_exception(value exn)
 
 static int caml_threadstatus_compare(value wrapper1, value wrapper2)
 {
-  thread_event ts1 = Threadstatus_val(wrapper1);
-  thread_event ts2 = Threadstatus_val(wrapper2);
+  st_event ts1 = Threadstatus_val(wrapper1);
+  st_event ts2 = Threadstatus_val(wrapper2);
   return ts1 == ts2 ? 0 : ts1 < ts2 ? -1 : 1;
 }
 
 static struct custom_operations caml_threadstatus_ops = {
-  "_decstatus",
+  "_threadstatus",
   caml_threadstatus_finalize,
   caml_threadstatus_compare,
   custom_hash_default,
@@ -596,63 +460,32 @@ static struct custom_operations caml_threadstatus_ops = {
   custom_fixed_length_default
 };
 
-static value caml_threadstatus_new (value unit);
-
-static int thread_event_create(thread_event * res)
-{
-  thread_event e = caml_stat_alloc_noexc(sizeof(struct event_struct));
-  if (e == NULL) return ENOMEM;
-  caml_plat_mutex_init(&e->lock);
-  caml_plat_cond_init(&e->triggered, &e->lock);
-  e->status = 0;
-  *res = e;
-  return 0;
-}
-
 static value caml_threadstatus_new (value unit)
 {
   CAMLparam0();
   CAMLlocal1(wrapper);
 
-  thread_event ts = NULL;           /* suppress warning */
-  thread_event_create(&ts);
-  wrapper = caml_alloc_custom(&caml_threadstatus_ops, sizeof(thread_event *),
+  st_event ts = NULL;           /* suppress warning */
+  st_event_create(&ts);
+  wrapper = caml_alloc_custom(&caml_threadstatus_ops, sizeof(st_event *),
                               0, 1);
   Threadstatus_val(wrapper) = ts;
 
   CAMLreturn (wrapper);
 }
 
-static void thread_event_trigger(thread_event e)
-{
-  caml_plat_lock(&e->lock);
-  e->status = 1;
-  caml_plat_signal(&e->triggered);
-  caml_plat_unlock(&e->lock);
-  return;
-}
-
 static void caml_threadstatus_terminate (value wrapper)
 {
-  thread_event_trigger(Threadstatus_val(wrapper));
-}
-
-static void thread_event_wait(thread_event e)
-{
-  caml_plat_lock(&e->lock);
-  while(e->status == 0) {
-    caml_plat_wait(&e->triggered);
-  }
-  caml_plat_unlock(&e->lock);
+  st_event_trigger(Threadstatus_val(wrapper));
 }
 
 static void caml_threadstatus_wait (value wrapper)
 {
-  thread_event ts = Threadstatus_val(wrapper);
+  st_event ts = Threadstatus_val(wrapper);
 
   Begin_roots1(wrapper)         /* prevent deallocation of ts */
     caml_enter_blocking_section();
-    thread_event_wait(ts);
+    st_event_wait(ts);
     caml_leave_blocking_section();
   End_roots();
 
@@ -668,19 +501,17 @@ CAMLprim value caml_thread_join(value th)          /* ML */
 
 /* mutex */
 
-typedef caml_plat_mutex * thread_mutex;
-
-#define Mutex_val(v) (* ((thread_mutex *) Data_custom_val(v)))
+#define Mutex_val(v) (* ((st_mutex *) Data_custom_val(v)))
 
 static void caml_mutex_finalize(value wrapper)
 {
-  caml_plat_mutex_free(Mutex_val(wrapper));
+  st_mutex_destroy(Mutex_val(wrapper));
 }
 
 static int caml_mutex_compare(value wrapper1, value wrapper2)
 {
-  thread_mutex mut1 = Mutex_val(wrapper1);
-  thread_mutex mut2 = Mutex_val(wrapper2);
+  st_mutex mut1 = Mutex_val(wrapper1);
+  st_mutex mut2 = Mutex_val(wrapper2);
   return mut1 == mut2 ? 0 : mut1 < mut2 ? -1 : 1;
 }
 
@@ -702,12 +533,12 @@ static struct custom_operations caml_mutex_ops = {
 
 CAMLprim value caml_mutex_new(value unit)        /* ML */
 {
+  st_mutex mut = NULL;
   CAMLparam0();
   CAMLlocal1(wrapper);
-  thread_mutex mut = caml_stat_alloc_noexc(sizeof(caml_plat_mutex));
 
-  caml_plat_mutex_init(mut);
-  wrapper = caml_alloc_custom(&caml_mutex_ops, sizeof(caml_plat_mutex *),
+  st_mutex_create(&mut);
+  wrapper = caml_alloc_custom(&caml_mutex_ops, sizeof(st_mutex *),
                               0, 1);
   Mutex_val(wrapper) = mut;
   CAMLreturn(wrapper);
@@ -715,14 +546,14 @@ CAMLprim value caml_mutex_new(value unit)        /* ML */
 
 CAMLprim value caml_mutex_lock(value wrapper)     /* ML */
 {
-  thread_mutex mut = Mutex_val(wrapper);
+  st_mutex mut = Mutex_val(wrapper);
 
   /* PR#4351: first try to acquire mutex without releasing the master lock */
   if (caml_plat_try_lock(mut)) return Val_unit;
   /* If unsuccessful, block on mutex */
   Begin_root(wrapper)
     caml_enter_blocking_section();
-    caml_plat_lock(mut);
+    st_mutex_lock(mut);
     caml_leave_blocking_section();
   End_roots();
   return Val_unit;
@@ -730,7 +561,7 @@ CAMLprim value caml_mutex_lock(value wrapper)     /* ML */
 
 CAMLprim value caml_mutex_unlock(value wrapper)           /* ML */
 {
-  thread_mutex mut = Mutex_val(wrapper);
+  st_mutex mut = Mutex_val(wrapper);
   /* PR#4351: no need to release and reacquire master lock */
   caml_plat_unlock(mut);
   return Val_unit;
@@ -738,7 +569,7 @@ CAMLprim value caml_mutex_unlock(value wrapper)           /* ML */
 
 CAMLprim value caml_mutex_try_lock(value wrapper)           /* ML */
 {
-  thread_mutex mut = Mutex_val(wrapper);
+  st_mutex mut = Mutex_val(wrapper);
   int retcode = caml_plat_try_lock(mut);
   if (retcode == 1) return Val_false;
   return Val_true;
@@ -747,36 +578,18 @@ CAMLprim value caml_mutex_try_lock(value wrapper)           /* ML */
 
 /* Cond */
 
-typedef caml_plat_cond * thread_cond;
-
-// TODO: refactor the condition part in a way that makes the Condition module
-// and platform code cohabit.
-// thread_cond_broadcast and thread_cond_signals are borrowed from platform
-// but do not assert on the mutex.
-// The main issue is that platform conditions do rely on explicitly binding a
-// mutex to the cond, which is not how Condition work.
-
-void caml_thread_cond_broadcast(caml_plat_cond* cond)
-{
-  check_err("thread_cond_broadcast", pthread_cond_broadcast(&cond->cond));
-}
-
-void caml_thread_cond_signal(caml_plat_cond* cond)
-{
-  check_err("thread_cond_signal", pthread_cond_signal(&cond->cond));
-}
-
-#define Condition_val(v) (* (thread_cond *) Data_custom_val(v))
+#define Condition_val(v) (* (st_condvar *) Data_custom_val(v))
 
 static void caml_condition_finalize(value wrapper)
 {
-  caml_plat_cond_free(Condition_val(wrapper));
+  // TODO: free wrapper?
+  st_condvar_destroy(Condition_val(wrapper));
 }
 
 static int caml_condition_compare(value wrapper1, value wrapper2)
 {
-  thread_cond cond1 = Condition_val(wrapper1);
-  thread_cond cond2 = Condition_val(wrapper2);
+  st_condvar cond1 = Condition_val(wrapper1);
+  st_condvar cond2 = Condition_val(wrapper2);
   return cond1 == cond2 ? 0 : cond1 < cond2 ? -1 : 1;
 }
 
@@ -799,11 +612,10 @@ static struct custom_operations caml_condition_ops = {
 CAMLprim value caml_condition_new(value unit)        /* ML */
 {
   value wrapper;
-  thread_cond cond;
+  st_condvar cond = NULL;
 
-  cond = caml_stat_alloc_noexc(sizeof(caml_plat_cond));
-  caml_plat_cond_init_no_mutex(cond);
-  wrapper = caml_alloc_custom(&caml_condition_ops, sizeof(caml_plat_cond *),
+  st_condvar_create(&cond);
+  wrapper = caml_alloc_custom(&caml_condition_ops, sizeof(st_condvar *),
                               0, 1);
   Condition_val(wrapper) = cond;
   return wrapper;
@@ -811,13 +623,12 @@ CAMLprim value caml_condition_new(value unit)        /* ML */
 
 CAMLprim value caml_condition_wait(value wcond, value wmut)           /* ML */
 {
-  thread_cond cond = Condition_val(wcond);
-  thread_mutex mut = Mutex_val(wmut);
+  st_condvar cond = Condition_val(wcond);
+  st_mutex mut = Mutex_val(wmut);
 
   Begin_roots2(wcond, wmut)
     caml_enter_blocking_section();
-    caml_plat_cond_set_mutex(cond, mut);
-    caml_plat_wait(cond);
+    st_condvar_wait(cond, mut);
     caml_leave_blocking_section();
   End_roots();
 
@@ -826,74 +637,12 @@ CAMLprim value caml_condition_wait(value wcond, value wmut)           /* ML */
 
 CAMLprim value caml_condition_signal(value wrapper)           /* ML */
 {
-  caml_thread_cond_signal(Condition_val(wrapper));
+  st_condvar_signal(Condition_val(wrapper));
   return Val_unit;
 }
 
 CAMLprim value caml_condition_broadcast(value wrapper)           /* ML */
 {
-  caml_thread_cond_broadcast(Condition_val(wrapper));
+  st_condvar_broadcast(Condition_val(wrapper));
   return Val_unit;
-}
-
-/* Signal handling */
-
-static void thread_decode_sigset(value vset, sigset_t * set)
-{
-  sigemptyset(set);
-  while (vset != Val_int(0)) {
-    int sig = caml_convert_signal_number(Int_field(vset, 0));
-    sigaddset(set, sig);
-    vset = Field_imm(vset, 1);
-  }
-}
-
-static value thread_encode_sigset(sigset_t * set)
-{
-  value res = Val_int(0);
-  int i;
-
-  Begin_root(res)
-    for (i = 1; i < NSIG; i++)
-      if (sigismember(set, i) > 0) {
-        value newcons = caml_alloc_small(2, 0);
-        caml_modify_field(newcons, 0, Val_int(caml_rev_convert_signal_number(i)));
-        caml_modify_field(newcons, 1, res);
-        res = newcons;
-      }
-  End_roots();
-  return res;
-}
-
-static int sigmask_cmd[3] = { SIG_SETMASK, SIG_BLOCK, SIG_UNBLOCK };
-
-CAMLprim value caml_thread_sigmask(value cmd, value sigs)
-{
-  int how;
-  sigset_t set, oldset;
-
-  how = sigmask_cmd[Int_val(cmd)];
-  thread_decode_sigset(sigs, &set);
-  caml_enter_blocking_section();
-  pthread_sigmask(how, &set, &oldset);
-  caml_leave_blocking_section();
-
-  return thread_encode_sigset(&oldset);
-}
-
-value caml_wait_signal(value sigs) /* ML */
-{
-#ifdef HAS_SIGWAIT
-  sigset_t set;
-  int signo;
-
-  thread_decode_sigset(sigs, &set);
-  caml_enter_blocking_section();
-  sigwait(&set, &signo);
-  caml_leave_blocking_section();
-  return Val_int(caml_rev_convert_signal_number(signo));
-#else
-  caml_invalid_argument("Thread.wait_signal not implemented");
-  return Val_int(0);            /* not reached */
-#endif
 }
