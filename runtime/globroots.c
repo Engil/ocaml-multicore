@@ -115,7 +115,7 @@ static void scan_global_roots(scanning_action f, void* fdata)
   r = roots_all;
   caml_plat_unlock(&roots_mutex);
 
-  Assert(!Is_minor(r));
+  Assert(!Is_young(r));
   newr = r;
   f(fdata, newr, &newr);
   Assert(r == newr); /* GC should not move r, it is not young */

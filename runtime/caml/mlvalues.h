@@ -210,11 +210,7 @@ bits  63        (64-P) (63-P)        10 9     8 7   0
   ((char *)(val) < (char *)caml_minor_heaps_end && \
    (char *)(val) > (char *)caml_minor_heaps_base)
 
-/* TODO: Is_minor(val) is not required in the par minor GC, and should be replacec by Is_young. */
-#define Is_minor(val) Is_young(val)
-
 #define Is_block_and_young(val) Is_young(val)
-#define Is_block_and_minor(val) Is_minor(val)
 
 /* NOTE: [Forward_tag] and [Infix_tag] must be just under
    [No_scan_tag], with [Infix_tag] the lower one.

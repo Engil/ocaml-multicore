@@ -113,11 +113,11 @@ void caml_free_minor_tables(struct caml_minor_tables* r)
 
 #ifdef DEBUG
 extern int caml_debug_is_minor(value val) {
-  return Is_minor(val);
+  return Is_young(val);
 }
 
 extern int caml_debug_is_major(value val) {
-  return Is_block(val) && !Is_minor(val);
+  return Is_block(val) && !Is_young(val);
 }
 #endif
 
@@ -259,7 +259,7 @@ static void oldify_one (void* st_v, value v, value *p)
   tag_t tag;
 
   tail_call:
-  if (!(Is_block(v) && Is_minor(v))) {
+  if (!(Is_block(v) && Is_young(v))) {
     /* not a minor block */
     *p = v;
     return;
@@ -396,7 +396,7 @@ static inline int ephe_check_alive_data (struct caml_ephe_ref_elt *re)
   for (i = CAML_EPHE_FIRST_KEY; i < Wosize_val(re->ephe); i++) {
     child = Op_val(re->ephe)[i];
     if (child != caml_ephe_none
-        && Is_block (child) && Is_minor(child)) {
+        && Is_block (child) && Is_young(child)) {
       resolve_infix_val(&child);
       if (get_header_val(child) != 0) {
         /* value not copied to major heap */
@@ -434,13 +434,13 @@ static void oldify_mopup (struct oldify_state* st, int do_ephemerons)
 
     f = Op_val (new_v)[0];
     CAMLassert (!Is_debug_tag(f));
-    if (Is_block (f) && Is_minor(f)) {
+    if (Is_block (f) && Is_young(f)) {
       oldify_one (st, f, Op_val (new_v));
     }
     for (i = 1; i < Wosize_val (new_v); i++){
       f = Op_val (v)[i];
       CAMLassert (!Is_debug_tag(f));
-      if (Is_block (f) && Is_minor(f)) {
+      if (Is_block (f) && Is_young(f)) {
         oldify_one (st, f, Op_val (new_v) + i);
       } else {
         Op_val (new_v)[i] = f;
@@ -460,7 +460,7 @@ static void oldify_mopup (struct oldify_state* st, int do_ephemerons)
       value *data = re->offset == CAML_EPHE_DATA_OFFSET
               ? &Ephe_data(re->ephe)
               :  &Op_val(re->ephe)[re->offset];
-      if (*data != caml_ephe_none && Is_block(*data) && Is_minor(*data) ) {
+      if (*data != caml_ephe_none && Is_block(*data) && Is_young(*data) ) {
         resolve_infix_val(data);
         if (get_header_val(*data) == 0) { /* Value copied to major heap */
           *data = Op_val(*data)[0];
@@ -601,7 +601,7 @@ void caml_empty_minor_heap_promote (struct domain* domain, int participating_cou
     // We need to verify that all our remembered set entries are now in the major heap or promoted
     for( r = self_minor_tables->major_ref.base ; r < self_minor_tables->major_ref.ptr ; r++ ) {
       // Everything should be promoted
-      CAMLassert(!Is_minor(*r));
+      CAMLassert(!Is_young(*r));
     }
   #endif
 
@@ -609,7 +609,7 @@ void caml_empty_minor_heap_promote (struct domain* domain, int participating_cou
   caml_ev_begin("minor_gc/finalizers/oldify");
   for (elt = self_minor_tables->custom.base; elt < self_minor_tables->custom.ptr; elt++) {
     value *v = &elt->block;
-    if (Is_block(*v) && Is_minor(*v)) {
+    if (Is_block(*v) && Is_young(*v)) {
       if (get_header_val(*v) == 0) { /* value copied to major heap */
         *v = Op_val(*v)[0];
       } else {
@@ -638,12 +638,12 @@ void caml_empty_minor_heap_promote (struct domain* domain, int participating_cou
   for (r = self_minor_tables->major_ref.base;
        r < self_minor_tables->major_ref.ptr; r++) {
     value vnew = **r;
-    CAMLassert (!Is_block(vnew) || (get_header_val(vnew) != 0 && !Is_minor(vnew)));
+    CAMLassert (!Is_block(vnew) || (get_header_val(vnew) != 0 && !Is_young(vnew)));
   }
 
   for (elt = self_minor_tables->custom.base; elt < self_minor_tables->custom.ptr; elt++) {
     value vnew = elt->block;
-    CAMLassert (!Is_block(vnew) || (get_header_val(vnew) != 0 && !Is_minor(vnew)));
+    CAMLassert (!Is_block(vnew) || (get_header_val(vnew) != 0 && !Is_young(vnew)));
   }
 #endif
 
