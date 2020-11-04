@@ -183,7 +183,7 @@ static void* map_fixed(void* mem, uintnat size, int prot)
 
 void* caml_mem_commit(void* mem, uintnat size)
 {
-  void* p = map_fixed(mem, size, PROT_READ | PROT_WRITE);
+  mprotect(mem, size, PROT_READ | PROT_WRITE);
   /*
     FIXME: On Linux, with overcommit, you stand a better
     chance of getting good error messages in OOM conditions
@@ -192,7 +192,7 @@ void* caml_mem_commit(void* mem, uintnat size)
 
       if (p) memset(p, 0, size);
   */
-  return p;
+  return mem;
 }
 
 void caml_mem_decommit(void* mem, uintnat size)
