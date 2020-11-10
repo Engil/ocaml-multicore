@@ -170,10 +170,11 @@ void* caml_mem_map(uintnat size, uintnat alignment, int reserve_only)
   caml_mem_unmap((void*)aligned_end, (base + alloc_sz) - aligned_end);
   return (void*)aligned_start;
 }
+
 static void* map_fixed(void* mem, uintnat size, int prot)
 {
   if (mmap((void*)mem, size, prot,
-           MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED,
+           MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE | MAP_FIXED,
            -1, 0) == MAP_FAILED) {
     return 0;
   } else {
