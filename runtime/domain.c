@@ -1265,6 +1265,8 @@ static void domain_terminate()
       Assert (domain_self->backup_thread_running);
       domain_self->backup_thread_running = 0;
     }
+    caml_mem_wontneed((void*)domain_self->minor_heap_area,
+		      domain_self->minor_heap_area_end - domain_self->minor_heap_area);
     caml_plat_unlock(&s->lock);
   }
 

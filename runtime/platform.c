@@ -200,6 +200,12 @@ void caml_mem_decommit(void* mem, uintnat size)
   map_fixed(mem, size, PROT_NONE);
 }
 
+void caml_mem_wontneed(void* mem, uintnat size)
+{
+  map_fixed(mem, size, PROT_NONE);
+  madvise(mem, size, MADV_DONTNEED);
+}
+
 void caml_mem_unmap(void* mem, uintnat size)
 {
   munmap(mem, size);
