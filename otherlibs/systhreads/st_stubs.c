@@ -274,7 +274,6 @@ static void caml_thread_reinitialize(void)
   th = Current_thread->next;
   while (th != Current_thread) {
     next = th->next;
-    caml_stat_free(th->current_stack);
     caml_delete_root(th->backtrace_last_exn);
     caml_stat_free(th);
     th = next;
