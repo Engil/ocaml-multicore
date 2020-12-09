@@ -19,6 +19,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <malloc.h>
 #include "caml/callback.h"
 #include "caml/backtrace.h"
 #include "caml/custom.h"

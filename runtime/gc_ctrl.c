@@ -17,6 +17,7 @@
 
 #define CAML_INTERNALS
 
+#include <malloc.h>
 #include "caml/alloc.h"
 #include "caml/custom.h"
 #include "caml/finalise.h"
@@ -298,6 +299,9 @@ void caml_init_gc ()
   #ifdef NATIVE_CODE
   caml_init_frame_descriptors();
   #endif
+  if (caml_params->mallopt_value != 0)
+    mallopt(M_CHECK_ACTION, caml_params->mallopt_value);
+
   caml_init_domains(caml_params->init_minor_heap_wsz);
 /*
   caml_major_heap_increment = major_incr;
