@@ -17,6 +17,7 @@
 
 /* Start-up code */
 
+#include <mcheck.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <malloc.h>
@@ -96,6 +97,7 @@ value caml_startup_common(char_os **argv, int pooling)
 
   CAML_INIT_DOMAIN_STATE;
 
+  mcheck_pedantic(NULL);
   /* Determine options */
   caml_parse_ocamlrunparam();
 #ifdef DEBUG
