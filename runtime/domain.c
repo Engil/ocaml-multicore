@@ -113,6 +113,7 @@ static struct dom_internal all_domains[Max_domains];
 
 CAMLexport atomic_uintnat caml_num_domains_running;
 
+CAMLexport uintnat caml_tls_areas_base;
 CAMLexport uintnat caml_minor_heaps_base;
 CAMLexport uintnat caml_minor_heaps_end;
 static __thread dom_internal* domain_self;
@@ -333,7 +334,9 @@ CAMLexport void caml_reset_domain_lock(void)
 void caml_init_domains(uintnat minor_heap_wsz) {
   int i;
   uintnat size;
+  uintnat tls_areas_size;
   void* heaps_base;
+  void* tls_areas_base;
 
   /* sanity check configuration */
   if (caml_mem_round_up_pages(Minor_heap_max) != Minor_heap_max)
@@ -341,16 +344,20 @@ void caml_init_domains(uintnat minor_heap_wsz) {
 
   /* reserve memory space for minor heaps */
   size = (uintnat)Minor_heap_max * Max_domains;
+  tls_areas_size = (uintnat) (sizeof(caml_domain_state) * Max_domains);
 
+  tls_areas_base = caml_mem_map(tls_areas_size, tls_areas_size, 1 /* reserve */);
   heaps_base = caml_mem_map(size*2, size*2, 1 /* reserve_only */);
-  if (!heaps_base) caml_raise_out_of_memory();
+  if (!heaps_base || !tls_areas_base) caml_raise_out_of_memory();
 
   caml_minor_heaps_base = (uintnat) heaps_base;
   caml_minor_heaps_end = (uintnat) heaps_base + size;
+  caml_tls_areas_base = (uintnat) tls_areas_base;
 
   for (i = 0; i < Max_domains; i++) {
     struct dom_internal* dom = &all_domains[i];
     uintnat domain_minor_heap_base;
+    uintnat domain_tls_area;
 
     caml_plat_mutex_init(&dom->interruptor.lock);
     caml_plat_cond_init(&dom->interruptor.cond,
@@ -368,12 +375,12 @@ void caml_init_domains(uintnat minor_heap_wsz) {
 
     domain_minor_heap_base = caml_minor_heaps_base +
       (uintnat)Minor_heap_max * (uintnat)i;
-    dom->tls_area = domain_minor_heap_base;
-    dom->tls_area_end =
-      caml_mem_round_up_pages(dom->tls_area +
-                              sizeof(caml_domain_state));
+    domain_tls_area = caml_tls_areas_base +
+      sizeof(caml_domain_state) * i;
+    dom->tls_area = domain_tls_area;
+    dom->tls_area_end = domain_tls_area + sizeof(caml_domain_state);
     dom->minor_heap_area = /* skip guard page */
-      caml_mem_round_up_pages(dom->tls_area_end + 1);
+      caml_mem_round_up_pages(domain_minor_heap_base + 1);
     dom->minor_heap_area_end =
       domain_minor_heap_base + Minor_heap_max;
   }
