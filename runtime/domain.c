@@ -115,6 +115,8 @@ CAMLexport atomic_uintnat caml_num_domains_running;
 
 CAMLexport uintnat caml_minor_heaps_base;
 CAMLexport uintnat caml_minor_heaps_end;
+CAMLexport atomic_uintnat caml_minor_heaps_ptr;
+CAMLexport atomic_uintnat caml_minor_heaps_verbott;
 CAMLexport uintnat caml_tls_areas_base;
 static __thread dom_internal* domain_self;
 
@@ -166,18 +168,45 @@ asize_t caml_norm_minor_heap_size (intnat wsize)
   return Wsize_bsize(bs);
 }
 
+void caml_decommit_minor_heap() {
+  caml_mem_decommit((void*)domain_self->minor_heap_area,
+		      domain_self->minor_heap_area_end - domain_self->minor_heap_area);
+}
+
 int caml_reallocate_minor_heap(asize_t wsize)
 {
-  caml_domain_state* domain_state = Caml_state;
-  Assert(domain_state->young_ptr == domain_state->young_end);
+  uintnat minor_heaps_ptr;
+  uintnat allocation_ptr;
 
-  /* free old minor heap.
-     instead of unmapping the heap, we decommit it, so there's
-     no race whereby other code could attempt to reuse the memory. */
-  caml_mem_decommit((void*)domain_self->minor_heap_area,
-                    domain_self->minor_heap_area_end - domain_self->minor_heap_area);
+  minor_heaps_ptr = atomic_load(&caml_minor_heaps_ptr);
+
+  if (atomic_load(&caml_minor_heaps_verbott)) {
+    fprintf(stdout, "die die die\n");
+    abort();
+  }
+  caml_ev_begin("reallocate_minor_heap");
+  caml_domain_state* domain_state = Caml_state;
 
   wsize = caml_norm_minor_heap_size(wsize);
+
+  while (1) {
+    minor_heaps_ptr = atomic_load(&caml_minor_heaps_ptr);
+    allocation_ptr = minor_heaps_ptr + Bsize_wsize(wsize);
+
+    if (allocation_ptr >= caml_minor_heaps_end) {
+      caml_minor_collection();
+      /* fprintf(stdout, "wooops\n"); */
+      return 0; /* at the end of a minor cycle, the minor heap will be reallocated */
+    };
+
+    if(atomic_compare_exchange_strong(&caml_minor_heaps_ptr,
+				      &minor_heaps_ptr,
+				      allocation_ptr)) {
+      break;
+    };
+  };
+
+  domain_self->minor_heap_area = minor_heaps_ptr;
 
   if (!caml_mem_commit((void*)domain_self->minor_heap_area, Bsize_wsize(wsize))) {
     return -1;
@@ -197,6 +226,14 @@ int caml_reallocate_minor_heap(asize_t wsize)
   domain_state->young_end = (char*)(domain_self->minor_heap_area + Bsize_wsize(wsize));
   domain_state->young_limit = (uintnat) domain_state->young_start;
   domain_state->young_ptr = domain_state->young_end;
+  /* fprintf(stdout, "young_start: %ld young_end: %ld minor_heaps_ptr: %ld heaps_base: %ld heaps_end: %ld\n", */
+  /* 	      domain_self->minor_heap_area, */
+  /* 	      (domain_self->minor_heap_area + Bsize_wsize(wsize)), */
+  /* 	  caml_minor_heaps_ptr, */
+  /* 	  caml_minor_heaps_base, */
+  /* 	  caml_minor_heaps_end */
+  /* 	      ); */
+  caml_ev_end("reallocate_minor_heap");
   return 0;
 }
 
@@ -336,20 +373,27 @@ void caml_init_domains(uintnat minor_heap_wsz) {
     caml_fatal_error("Minor_heap_max misconfigured for this platform");
 
   /* reserve memory space for minor heaps and tls_areas */
-  size = (uintnat)Minor_heap_max * Max_domains;
+  size = (uintnat)Wsize_bsize(Minor_heap_max) * Max_domains;
+  /* fprintf(stdout, "Minor_heap_max: %ld %ld %ld\n", */
+  /* 	  (uintnat)Minor_heap_max, */
+  /* 	  (uintnat)Bsize_wsize(Minor_heap_max), */
+  /* 	  (uintnat)Wsize_bsize(Minor_heap_max) */
+  /* 	  ); */
   tls_size = sizeof(caml_domain_state) * Max_domains;
 
   heaps_base = caml_mem_map(size*2, size*2, 1 /* reserve_only */);
   tls_base = malloc(tls_size);
   if (!heaps_base || !tls_base) caml_raise_out_of_memory();
 
+  caml_minor_heaps_verbott = (uintnat) 0;
   caml_minor_heaps_base = (uintnat) heaps_base;
+  caml_minor_heaps_ptr = (uintnat) heaps_base;
   caml_minor_heaps_end = (uintnat) heaps_base + size;
+
   caml_tls_areas_base = (uintnat) tls_base;
 
   for (i = 0; i < Max_domains; i++) {
     struct dom_internal* dom = &all_domains[i];
-    uintnat domain_minor_heap_base;
     uintnat domain_tls_base;
 
     caml_plat_mutex_init(&dom->interruptor.lock);
@@ -366,15 +410,10 @@ void caml_init_domains(uintnat minor_heap_wsz) {
     dom->backup_thread_running = 0;
     dom->backup_thread_msg = BT_INIT;
 
-    domain_minor_heap_base = caml_minor_heaps_base +
-      (uintnat)Minor_heap_max * (uintnat)i;
     domain_tls_base = caml_tls_areas_base +
       sizeof(caml_domain_state) * (uintnat)i;
     dom->tls_area = domain_tls_base;
     dom->tls_area_end = domain_tls_base + sizeof(caml_domain_state);
-    dom->minor_heap_area = domain_minor_heap_base;
-    dom->minor_heap_area_end =
-      domain_minor_heap_base + Minor_heap_max;
   }
 
 
@@ -927,6 +966,10 @@ static void caml_poll_gc_work()
   if (((uintnat)Caml_state->young_ptr - Bhsize_wosize(Max_young_wosize) <
        (uintnat)Caml_state->young_start) ||
       Caml_state->requested_minor_gc) {
+    if ((caml_minor_heaps_ptr < caml_minor_heaps_end) && (caml_minor_heaps_ptr != 0x1337) && !Caml_state->requested_minor_gc) {
+      /* can allocate further memory from minor_heaps */
+      caml_reallocate_minor_heap(caml_params->init_minor_heap_wsz);
+    } else {
     /* out of minor heap or collection forced */
     caml_ev_begin("dispatch_minor_gc");
     Caml_state->requested_minor_gc = 0;
@@ -942,6 +985,7 @@ static void caml_poll_gc_work()
     caml_ev_begin("dispatch_final_do_calls");
     caml_final_do_calls();
     caml_ev_end("dispatch_final_do_calls");
+    };
   }
 
   if (Caml_state->requested_major_slice) {

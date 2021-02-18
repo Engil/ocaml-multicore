@@ -1329,12 +1329,17 @@ static void finish_major_cycle_callback (struct domain* domain, void* arg,
   }
 }
 
+
+void caml_finish_major_cycle_setup(struct domain* domain) {
+  caml_minor_heap_empty_setup();
+}
+
 void caml_finish_major_cycle ()
 {
   uintnat saved_major_cycles = caml_major_cycles_completed;
 
   while( saved_major_cycles == caml_major_cycles_completed ) {
-    caml_try_run_on_all_domains(&finish_major_cycle_callback, (void*)caml_major_cycles_completed, 0, 0);
+    caml_try_run_on_all_domains(&finish_major_cycle_callback, (void*)caml_major_cycles_completed, (void *) caml_finish_major_cycle_setup, 0);
   }
 }
 

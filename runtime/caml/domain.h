@@ -40,6 +40,7 @@ struct domain {
    CAMLunlikely((uintnat)(dom_st)->young_ptr < (dom_st)->young_limit))
 
 asize_t caml_norm_minor_heap_size (intnat);
+void caml_decommit_minor_heap(void);
 int caml_reallocate_minor_heap(asize_t);
 
 int caml_incoming_interrupts_queued(void);
@@ -106,6 +107,8 @@ struct domain* caml_domain_of_id(int);
 CAMLextern atomic_uintnat caml_num_domains_running;
 CAMLextern uintnat caml_minor_heaps_base;
 CAMLextern uintnat caml_minor_heaps_end;
+CAMLextern atomic_uintnat caml_minor_heaps_ptr;
+CAMLextern atomic_uintnat caml_minor_heaps_verbott;
 
 INLINE intnat caml_domain_alone()
 {

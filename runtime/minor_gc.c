@@ -46,6 +46,7 @@ struct generic_table CAML_TABLE_STRUCT(char);
 
 static atomic_intnat domains_finished_minor_gc;
 static atomic_intnat domain_finished_root;
+static atomic_intnat domain_reset_global_young_ptr;
 
 static atomic_uintnat caml_minor_cycles_started = 0;
 
@@ -678,13 +679,20 @@ void caml_empty_minor_heap_promote (struct domain* domain, int participating_cou
   atomic_store_rel((atomic_uintnat*)&domain_state->young_limit, (uintnat)domain_state->young_start);
   atomic_store_rel((atomic_uintnat*)&domain_state->young_ptr, (uintnat)domain_state->young_end);
 
-  if( not_alone ) {
-    atomic_fetch_add_explicit(&domains_finished_minor_gc, 1, memory_order_release);
-  }
-
   domain_state->stat_minor_words += Wsize_bsize (minor_allocated_bytes);
   domain_state->stat_minor_collections++;
   domain_state->stat_promoted_words += domain_state->allocated_words - prev_alloc_words;
+
+  /* collect gc stats before leaving the barrier */
+  /* caml_sample_gc_collect(domain->state); */
+  /* caml_empty_minor_heap_domain_clear(domain, 0); */
+  /* caml_decommit_minor_heap(); */
+
+  caml_sample_gc_collect(domain->state);
+
+  if( not_alone ) {
+    atomic_fetch_add_explicit(&domains_finished_minor_gc, 1, memory_order_release);
+  }
 
   caml_ev_end("minor_gc");
   caml_gc_log ("Minor collection of domain %d completed: %2.0f%% of %u KB live, rewrite: successes=%u failures=%u",
@@ -703,6 +711,12 @@ void caml_do_opportunistic_major_slice(struct domain* domain, void* unused)
     caml_opportunistic_major_collection_slice(0x200);
     if (log_events) caml_ev_end("minor_gc/opportunistic_major_slice");
   }
+}
+
+void caml_minor_heap_empty_setup() {
+  atomic_store_explicit(&domain_reset_global_young_ptr, 0, memory_order_release);
+  atomic_store_explicit(&caml_minor_heaps_ptr, 0x1337, memory_order_release);
+  atomic_store_explicit(&caml_minor_heaps_verbott, 1, memory_order_release);
 }
 
 /* Make sure the minor heap is empty by performing a minor collection
@@ -732,11 +746,12 @@ static void caml_stw_empty_minor_heap_no_major_slice (struct domain* domain, voi
     atomic_fetch_add(&caml_minor_cycles_started, 1);
   }
 
+  if (atomic_load(&caml_minor_heaps_ptr) != 0x1337) {
+    caml_minor_heap_empty_setup();
+  }
+
   caml_gc_log("running stw empty_minor_heap_promote");
   caml_empty_minor_heap_promote(domain, participating_count, participating, not_alone);
-
-  /* collect gc stats before leaving the barrier */
-  caml_sample_gc_collect(domain->state);
 
   if( not_alone ) {
     caml_ev_begin("minor_gc/leave_barrier");
@@ -750,9 +765,25 @@ static void caml_stw_empty_minor_heap_no_major_slice (struct domain* domain, voi
     caml_ev_end("minor_gc/leave_barrier");
   }
 
+  else {
+    caml_decommit_minor_heap();
+    caml_empty_minor_heap_domain_clear(domain, 0);
+    atomic_store_rel(&caml_minor_heaps_ptr, caml_minor_heaps_base);
+    atomic_store_rel(&caml_minor_heaps_verbott, 0x0);
+  }
+
+  if (!atomic_load(&domain_reset_global_young_ptr)) {
+    atomic_store_explicit(&caml_minor_heaps_ptr,
+			  caml_minor_heaps_base, memory_order_release);
+    atomic_store_explicit(&domain_reset_global_young_ptr, 1, memory_order_release);
+  }
+  atomic_store_rel(&caml_minor_heaps_verbott, 0x0);
+
+  caml_empty_minor_heap_domain_clear(domain, 0);
+  caml_reallocate_minor_heap(caml_params->init_minor_heap_wsz);
+
   caml_ev_begin("minor_gc/clear");
   caml_gc_log("running stw empty_minor_heap_domain_clear");
-  caml_empty_minor_heap_domain_clear(domain, 0);
   caml_ev_end("minor_gc/clear");
   caml_gc_log("finished stw empty_minor_heap");
 }
