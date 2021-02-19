@@ -143,6 +143,7 @@ void caml_invalid_argument_value (value msg)
 
 void caml_raise_out_of_memory(void)
 {
+  abort();
   caml_raise_constant((value) caml_exn_Out_of_memory);
 }
 

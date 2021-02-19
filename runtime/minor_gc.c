@@ -516,6 +516,8 @@ void caml_empty_minor_heap_domain_clear (struct domain* domain, void* unused)
   clear_table ((struct generic_table *)&minor_tables->major_ref);
   clear_table ((struct generic_table *)&minor_tables->ephe_ref);
   clear_table ((struct generic_table *)&minor_tables->custom);
+
+  caml_reallocate_minor_heap(caml_params->init_minor_heap_wsz);
 }
 
 void caml_empty_minor_heap_promote (struct domain* domain, int participating_count, struct domain** participating, int not_alone)
@@ -540,6 +542,10 @@ void caml_empty_minor_heap_promote (struct domain* domain, int participating_cou
 
   caml_gc_log ("Minor collection of domain %d starting", domain->state->id);
   caml_ev_begin("minor_gc");
+
+  if (atomic_load(&caml_global_minor_heap_ptr) != 0x1337) {
+    atomic_store_explicit(&caml_global_minor_heap_ptr, 0x1337, memory_order_release);
+  }
 
   if( participating[0] == caml_domain_self() || !not_alone ) { // TODO: We should distribute this work
     if(domain_finished_root == 0){
@@ -686,7 +692,6 @@ void caml_empty_minor_heap_promote (struct domain* domain, int participating_cou
   domain_state->stat_minor_collections++;
   domain_state->stat_promoted_words += domain_state->allocated_words - prev_alloc_words;
 
-  caml_ev_end("minor_gc");
   caml_gc_log ("Minor collection of domain %d completed: %2.0f%% of %u KB live, rewrite: successes=%u failures=%u",
                domain->state->id,
                100.0 * (double)st.live_bytes / (double)minor_allocated_bytes,
@@ -750,6 +755,12 @@ static void caml_stw_empty_minor_heap_no_major_slice (struct domain* domain, voi
     caml_ev_end("minor_gc/leave_barrier");
   }
 
+  if (atomic_load(&caml_global_minor_heap_ptr) == 0x1337 ) {
+    atomic_store_explicit(&caml_global_minor_heap_ptr,
+			  caml_minor_heaps_base,
+			  memory_order_release);
+  };
+
   caml_ev_begin("minor_gc/clear");
   caml_gc_log("running stw empty_minor_heap_domain_clear");
   caml_empty_minor_heap_domain_clear(domain, 0);
@@ -787,7 +798,9 @@ int caml_try_stw_empty_minor_heap_on_all_domains ()
 {
   #ifdef DEBUG
   CAMLassert(!caml_domain_is_in_stw());
+
   #endif
+
 
   caml_gc_log("requesting stw empty_minor_heap");
   return caml_try_run_on_all_domains_with_spin_work(
