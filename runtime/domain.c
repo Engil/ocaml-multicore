@@ -188,7 +188,6 @@ int caml_reallocate_minor_heap(asize_t wsize)
     /* if the new allocation pointer is beyond the global minor heap
        segment, request a minor collection */
     if (new_alloc_ptr >= caml_minor_heaps_end) {
-      caml_failwith("meow");
       caml_minor_collection();
     }
 

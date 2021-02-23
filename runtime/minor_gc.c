@@ -758,9 +758,9 @@ static void caml_stw_empty_minor_heap_no_major_slice (struct domain* domain, voi
 
   uintnat lama = atomic_load_explicit(&caml_global_minor_heap_ptr, memory_order_acquire);
   if (lama == (uintnat) 0x1337) {
-    atomic_store_explicit(&caml_global_minor_heap_ptr,
-			  caml_minor_heaps_base,
-			  memory_order_release);
+   atomic_compare_exchange_strong(&caml_global_minor_heap_ptr,
+				  &lama,
+				  caml_minor_heaps_base);
   };
 
 
