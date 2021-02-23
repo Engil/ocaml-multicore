@@ -517,7 +517,6 @@ void caml_empty_minor_heap_domain_clear (struct domain* domain, void* unused)
   clear_table ((struct generic_table *)&minor_tables->ephe_ref);
   clear_table ((struct generic_table *)&minor_tables->custom);
 
-  caml_reallocate_minor_heap(caml_params->init_minor_heap_wsz);
 }
 
 void caml_empty_minor_heap_promote (struct domain* domain, int participating_count, struct domain** participating, int not_alone)
@@ -543,8 +542,9 @@ void caml_empty_minor_heap_promote (struct domain* domain, int participating_cou
   caml_gc_log ("Minor collection of domain %d starting", domain->state->id);
   caml_ev_begin("minor_gc");
 
-  if (atomic_load(&caml_global_minor_heap_ptr) != 0x1337) {
-    atomic_store_explicit(&caml_global_minor_heap_ptr, 0x1337, memory_order_release);
+  uintnat lama = atomic_load_explicit(&caml_global_minor_heap_ptr, memory_order_acquire);
+  if (lama != (uintnat) 0x1337) {
+    atomic_store_explicit(&caml_global_minor_heap_ptr, (uintnat) 0x1337, memory_order_release);
   }
 
   if( participating[0] == caml_domain_self() || !not_alone ) { // TODO: We should distribute this work
@@ -743,27 +743,32 @@ static void caml_stw_empty_minor_heap_no_major_slice (struct domain* domain, voi
   /* collect gc stats before leaving the barrier */
   caml_sample_gc_collect(domain->state);
 
+
   if( not_alone ) {
     caml_ev_begin("minor_gc/leave_barrier");
     SPIN_WAIT {
-      if( atomic_load_explicit(&domains_finished_minor_gc, memory_order_acquire) == participating_count ) {
+      if(atomic_load_explicit(&domains_finished_minor_gc, memory_order_acquire) == participating_count ) {
         break;
       }
 
-      caml_do_opportunistic_major_slice(domain, 0);
+      /* caml_do_opportunistic_major_slice(domain, 0); */
     }
     caml_ev_end("minor_gc/leave_barrier");
   }
 
-  if (atomic_load(&caml_global_minor_heap_ptr) == 0x1337 ) {
+  uintnat lama = atomic_load_explicit(&caml_global_minor_heap_ptr, memory_order_acquire);
+  if (lama == (uintnat) 0x1337) {
     atomic_store_explicit(&caml_global_minor_heap_ptr,
 			  caml_minor_heaps_base,
 			  memory_order_release);
   };
 
+
+  caml_empty_minor_heap_domain_clear(domain, 0);
+  caml_reallocate_minor_heap(caml_params->init_minor_heap_wsz);
+
   caml_ev_begin("minor_gc/clear");
   caml_gc_log("running stw empty_minor_heap_domain_clear");
-  caml_empty_minor_heap_domain_clear(domain, 0);
   caml_ev_end("minor_gc/clear");
   caml_gc_log("finished stw empty_minor_heap");
 }

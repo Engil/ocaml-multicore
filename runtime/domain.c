@@ -175,13 +175,12 @@ int caml_reallocate_minor_heap(asize_t wsize)
   uintnat new_alloc_ptr;
 
   caml_ev_begin("reallocate");
-  if (!caml_domain_alone())
-    while (atomic_load_acq(&stw_leader)) caml_plat_wait(&all_domains_cond);
+
   Assert(domain_state->young_ptr == domain_state->young_end);
 
   while (1) {
 
-    global_minor_heap_ptr = atomic_load(&caml_global_minor_heap_ptr);
+    global_minor_heap_ptr = atomic_load_explicit(&caml_global_minor_heap_ptr, memory_order_acquire);
     if (global_minor_heap_ptr == 0x1337)
       caml_failwith("oh no");
     new_alloc_ptr = global_minor_heap_ptr + Bsize_wsize(wsize);
@@ -189,6 +188,7 @@ int caml_reallocate_minor_heap(asize_t wsize)
     /* if the new allocation pointer is beyond the global minor heap
        segment, request a minor collection */
     if (new_alloc_ptr >= caml_minor_heaps_end) {
+      caml_failwith("meow");
       caml_minor_collection();
     }
 
