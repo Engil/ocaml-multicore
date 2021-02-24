@@ -532,6 +532,7 @@ void caml_empty_minor_heap_promote (struct domain* domain, int participating_cou
   struct oldify_state st = {0};
   value **r;
   intnat c, curr_idx;
+  uintnat finished_minor_gc;
 
   st.promote_domain = domain;
 
@@ -684,8 +685,26 @@ void caml_empty_minor_heap_promote (struct domain* domain, int participating_cou
   atomic_store_rel((atomic_uintnat*)&domain_state->young_limit, (uintnat)domain_state->young_start);
   atomic_store_rel((atomic_uintnat*)&domain_state->young_ptr, (uintnat)domain_state->young_end);
 
+
   if( not_alone ) {
-    atomic_fetch_add_explicit(&domains_finished_minor_gc, 1, memory_order_release);
+
+    while (1) {
+      finished_minor_gc = atomic_load_explicit(&domains_finished_minor_gc, memory_order_acquire);
+      if ((finished_minor_gc + 1) == participating_count) {
+	atomic_store_explicit(&caml_global_minor_heap_ptr,
+			      caml_minor_heaps_base,
+			      memory_order_release);
+      }
+      if (atomic_compare_exchange_strong(&domains_finished_minor_gc,
+					 &finished_minor_gc,
+					 finished_minor_gc + 1)) {
+	break;
+      }
+    }
+  } else {
+    atomic_store_explicit(&caml_global_minor_heap_ptr,
+			  caml_minor_heaps_base,
+			  memory_order_release);
   }
 
   domain_state->stat_minor_words += Wsize_bsize (minor_allocated_bytes);
@@ -755,13 +774,6 @@ static void caml_stw_empty_minor_heap_no_major_slice (struct domain* domain, voi
     }
     caml_ev_end("minor_gc/leave_barrier");
   }
-
-  uintnat lama = atomic_load_explicit(&caml_global_minor_heap_ptr, memory_order_acquire);
-  if (lama == (uintnat) 0x1337) {
-   atomic_compare_exchange_strong(&caml_global_minor_heap_ptr,
-				  &lama,
-				  caml_minor_heaps_base);
-  };
 
 
   caml_empty_minor_heap_domain_clear(domain, 0);
