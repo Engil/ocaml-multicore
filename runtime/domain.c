@@ -960,21 +960,30 @@ static void caml_poll_gc_work()
   if (((uintnat)Caml_state->young_ptr - Bhsize_wosize(Max_young_wosize) <
        (uintnat)Caml_state->young_start) ||
       Caml_state->requested_minor_gc) {
-    /* out of minor heap or collection forced */
-    caml_ev_begin("dispatch_minor_gc");
-    Caml_state->requested_minor_gc = 0;
-    caml_empty_minor_heaps_once();
-    caml_ev_end("dispatch_minor_gc");
 
-    /* FIXME: a domain will only ever call finalizers if its minor
-      heap triggers the minor collection
-      Care may be needed with finalizers running when the domain
-      is waiting in a critical_section or in a blocking section
-      and serviced by the backup thread.
+    if (
+	((atomic_load(&caml_global_minor_heap_ptr) + caml_params->init_minor_heap_wsz) < caml_minor_heaps_end)
+	&& !(Caml_state->requested_minor_gc)
+	) {
+      caml_reallocate_minor_heap(caml_params->init_minor_heap_wsz);
+    } else {
+
+      /* out of minor heap or collection forced */
+      caml_ev_begin("dispatch_minor_gc");
+      Caml_state->requested_minor_gc = 0;
+      caml_empty_minor_heaps_once();
+      caml_ev_end("dispatch_minor_gc");
+
+      /* FIXME: a domain will only ever call finalizers if its minor
+	 heap triggers the minor collection
+	 Care may be needed with finalizers running when the domain
+	 is waiting in a critical_section or in a blocking section
+	 and serviced by the backup thread.
       */
-    caml_ev_begin("dispatch_final_do_calls");
-    caml_final_do_calls();
-    caml_ev_end("dispatch_final_do_calls");
+      caml_ev_begin("dispatch_final_do_calls");
+      caml_final_do_calls();
+      caml_ev_end("dispatch_final_do_calls");
+    }
   }
 
   if (Caml_state->requested_major_slice) {
