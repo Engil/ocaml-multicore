@@ -39,8 +39,10 @@ struct domain {
   (CAMLalloc_point_here, \
    CAMLunlikely((uintnat)(dom_st)->young_ptr < (dom_st)->young_limit))
 
+#define REALLOCATE_OOM -1
+#define REALLOCATE_HEAP_FULL -2
+
 asize_t caml_norm_minor_heap_size (intnat);
-int caml_reallocate_minor_heap(asize_t);
 
 int caml_incoming_interrupts_queued(void);
 
@@ -53,6 +55,8 @@ void caml_request_major_slice (void);
 void caml_request_minor_gc (void);
 
 void caml_interrupt_self(void);
+
+int caml_update_young_limit(uintnat new_limit);
 
 #if defined(COLLECT_STATS) && defined(NATIVE_CODE)
 struct detailed_stats {
@@ -107,8 +111,10 @@ struct domain* caml_owner_of_young_block(value);
 struct domain* caml_domain_of_id(int);
 
 CAMLextern atomic_uintnat caml_num_domains_running;
-CAMLextern uintnat caml_minor_heaps_base;
-CAMLextern uintnat caml_minor_heaps_end;
+CAMLextern uintnat caml_global_minor_heap_start;
+CAMLextern uintnat caml_global_minor_heap_end;
+CAMLextern uintnat caml_global_minor_heap_limit;
+CAMLextern atomic_uintnat caml_global_minor_heap_ptr;
 
 INLINE intnat caml_domain_alone()
 {
