@@ -67,6 +67,19 @@ Test () {
   cd ..
 }
 
+TestLoop () {
+  echo Running the testsuite, but more
+  tests=("parallel" "callback" "gc-roots" "effects" "lib-threads" "lib-systhreads" "weak-ephe-final")
+  for it in {1..3}
+  do
+      for i in "${tests[@]}"
+      do
+	  $MAKE -C testsuite one DIR=tests/$i || exit 1
+      done
+  done
+  cd ..
+}
+
 API_Docs () {
   echo Ensuring that all library documentation compiles
   $MAKE -C ocamldoc html_doc pdf_doc texi_doc
@@ -116,6 +129,7 @@ case $1 in
 configure) Configure;;
 build) Build;;
 test) Test;;
+testmore) TestLoop;;
 api-docs) API_Docs;;
 install) Install;;
 other-checks) Checks;;

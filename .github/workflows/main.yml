@@ -29,3 +29,18 @@ jobs:
       - name: Run the testsuite
         run: |
           ${{ matrix.env }} bash -xe tools/ci/actions/runner.sh test
+      - name: Run the testsuite (Super Charged)
+        if: ${{ matrix.name == 'linux' }}
+        run: |
+          bash -xe tools/ci/actions/runner.sh testmore
+      - name: Run the testsuite (s=4096, debug runtime)
+        env:
+          OCAMLRUNPARAM: s=4096,v=0
+          USE_RUNTIME: d
+        if: ${{ matrix.name == 'linux' }}
+        run: |
+          bash -xe tools/ci/actions/runner.sh test
+      - name: Run the testsuite (taskset -c 0)
+        if: ${{ matrix.name == 'linux' }}
+        run: |
+          taskset -c 0 bash -xe tools/ci/actions/runner.sh test
