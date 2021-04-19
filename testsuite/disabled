@@ -73,7 +73,3 @@ tests/promotion/bigrecmod.ml
 
 # instrumented runtime test is not very useful (and broken on multicore.) (#9413)
 tests/instrumented-runtime/'main.ml' with 1.1 (native)
-
-# TODO: dlabs breaks the size assumption on minor_heap
-tests/regression/pr9326/'gc_set.ml' with 2 (bytecode)
-tests/regression/pr9326/'gc_set.ml' with 1 (native)
