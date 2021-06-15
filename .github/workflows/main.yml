@@ -20,27 +20,48 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-      - name: configure tree
-        run: |
-          MAKE_ARG=-j XARCH=x64 bash -xe tools/ci/actions/runner.sh configure
-      - name: Build
-        run: |
-          MAKE_ARG=-j bash -xe tools/ci/actions/runner.sh build
-      - name: Run the testsuite
-        run: |
-          ${{ matrix.env }} bash -xe tools/ci/actions/runner.sh test
-      - name: Run the testsuite (Super Charged)
-        if: ${{ matrix.name == 'linux' }}
-        run: |
-          bash -xe tools/ci/actions/runner.sh testmore
-      - name: Run the testsuite (s=4096, debug runtime)
-        env:
-          OCAMLRUNPARAM: s=4096,v=0
-          USE_RUNTIME: d
-        if: ${{ matrix.name == 'linux' }}
-        run: |
-          bash -xe tools/ci/actions/runner.sh test
-      - name: Run the testsuite (taskset -c 0)
-        if: ${{ matrix.name == 'linux' }}
-        run: |
-          taskset -c 0 bash -xe tools/ci/actions/runner.sh test
+      # - name: configure tree
+      #   run: |
+      #     MAKE_ARG=-j XARCH=x64 bash -xe tools/ci/actions/runner.sh configure
+      # - name: Build
+      #   run: |
+      #     MAKE_ARG=-j bash -xe tools/ci/actions/runner.sh build
+      - uses: actions/upload-artifact@v2
+        with:
+          name: compiler
+          path: .
+          - name: Run the testsuite
+  test:
+    needs: build
+    # https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idneeds    strategy:
+    runs-on: ubuntu-latest    steps:
+    stategy:
+      matrix:
+        total:
+          - 3
+        id:
+          - 1
+          - 2
+          - 3
+    steps:
+      - uses: actions/download-artifact@v2
+        with:
+          name: compiler
+      # - run: test-run --id ${{ matrix.id }} --total ${{ matrix.total }}
+      #   run: |
+      #     ${{ matrix.env }} bash -xe tools/ci/actions/runner.sh test
+      # - name: Run the testsuite (Super Charged)
+      #   if: ${{ matrix.name == 'linux' }}
+      #   run: |
+      #     bash -xe tools/ci/actions/runner.sh testmore
+      # - name: Run the testsuite (s=4096, debug runtime)
+      #   env:
+      #     OCAMLRUNPARAM: s=4096,v=0
+      #     USE_RUNTIME: d
+      #   if: ${{ matrix.name == 'linux' }}
+      #   run: |
+      #     bash -xe tools/ci/actions/runner.sh test
+      # - name: Run the testsuite (taskset -c 0)
+      #   if: ${{ matrix.name == 'linux' }}
+      #   run: |
+      #     taskset -c 0 bash -xe tools/ci/actions/runner.sh test
