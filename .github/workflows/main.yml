@@ -23,6 +23,7 @@ jobs:
         with:
           name: compiler
           path: /tmp/sources.tar.gz
+          retention-days: 1
 
   build-misc:
     name: ${{ matrix.name }}
