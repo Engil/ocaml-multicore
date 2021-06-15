@@ -54,8 +54,6 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        total:
-          - 4
         id:
           - debug
           - taskset
@@ -84,6 +82,6 @@ jobs:
         run: |
           bash -xe tools/ci/actions/runner.sh test
       - name: Run the testsuite (taskset -c 0)
-        if: ${{ matrix.name == 'taskset' }}
+        if: ${{ matrix.id == 'taskset' }}
         run: |
           taskset -c 0 bash -xe tools/ci/actions/runner.sh test
