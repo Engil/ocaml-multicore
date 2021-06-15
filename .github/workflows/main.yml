@@ -30,6 +30,9 @@ jobs:
     strategy:
       matrix:
         include:
+          - name: linux-O0
+            os: ubuntu-latest
+            env: CFLAGS='-O0'
           - name: linux-debug
             os: ubuntu-latest
             env: OCAMLRUNPARAM=v=0,V=1 USE_RUNTIME=d
