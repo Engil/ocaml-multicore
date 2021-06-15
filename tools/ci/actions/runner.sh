@@ -70,7 +70,7 @@ Test () {
 TestLoop () {
   echo Running the testsuite, but more
   tests=("parallel" "callback" "gc-roots" "effects" "lib-threads" "lib-systhreads" "weak-ephe-final")
-  for it in {1..3}
+  for it in {1..$2}
   do
       for i in "${tests[@]}"
       do
@@ -129,7 +129,7 @@ case $1 in
 configure) Configure;;
 build) Build;;
 test) Test;;
-testmore) TestLoop;;
+test_multicore) TestLoop;;
 api-docs) API_Docs;;
 install) Install;;
 other-checks) Checks;;
