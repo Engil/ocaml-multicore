@@ -30,6 +30,7 @@ jobs:
         with:
           name: compiler
           path: .
+
   test:
     needs: build
     # https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idneeds    strategy:
