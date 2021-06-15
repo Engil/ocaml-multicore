@@ -35,7 +35,7 @@ jobs:
     needs: build
     # https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idneeds    strategy:
     runs-on: ubuntu-latest
-    stategy:
+    strategy:
       matrix:
         total:
           - 3
