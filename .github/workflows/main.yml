@@ -26,12 +26,11 @@ jobs:
       # - name: Build
       #   run: |
       #     MAKE_ARG=-j bash -xe tools/ci/actions/runner.sh build
-      - name: Upload Artifact
-        if: ${{ matrix.name == 'linux' }}
-        uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v2
           with:
             name: compiler
             path: .
+        if: ${{ matrix.name == 'linux' }}
 
   test:
     needs: build
