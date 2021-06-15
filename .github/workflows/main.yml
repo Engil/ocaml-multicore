@@ -30,11 +30,10 @@ jobs:
         with:
           name: compiler
           path: .
-          - name: Run the testsuite
   test:
     needs: build
     # https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idneeds    strategy:
-    runs-on: ubuntu-latest    steps:
+    runs-on: ubuntu-latest
     stategy:
       matrix:
         total:
