@@ -8,5 +8,5 @@ jobs:
       - uses: actions/github-script@v4
         with:
           script: |
-            const script = require('tools/ci/actions/diff.js')
+            const script = require('./tools/ci/actions/diff.js')
             console.log(script({github, context}))
