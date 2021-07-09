@@ -9,4 +9,4 @@ jobs:
         with:
           script: |
             const script = require('./tools/ci/actions/diff.js')
-            console.log(script({github, context}))
+            await script({github, context})

@@ -98,7 +98,7 @@ Evaluation: `);
     else
 	message = message.concat("🔎 There is a lot of work to do, look for lines to match to trunk in grassy areas.");
 
-    await github.issues.createComment({
+    return await github.issues.createComment({
         issue_number: context.issue.number,
         owner: context.repo.owner,
         repo: context.repo.repo,
