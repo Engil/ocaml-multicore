@@ -7,8 +7,10 @@ let changed_cmd = 'git diff --name-only HEAD origin/4.12+domains+effects';
 async function get_diff(cmd) {
     try {
 	const {stdout, stderr} = await exec(cmd);
+	console.log({stdout, stderr});
 	let res = stdout === "" ? "0\t0\t\0\n" : stdout; // no change in git diff returns nada
 	let s = res.replace("\n", "").split("\t");
+	console.log(s);
 	return(s);
     }
     catch (e) {
