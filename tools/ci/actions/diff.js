@@ -46,7 +46,7 @@ async function main(github, context) {
 
     for (const i of changed) {
 
-	let multicoreCmd = diff_cmd.concat(` ocaml/trunk 4.12+domains+effects ${i}`);
+	let multicoreCmd = diff_cmd.concat(` ocaml/trunk origin/4.12+domains+effects ${i}`);
 	let trunkCmd = diff_cmd.concat(` ocaml/trunk ${i}`);
 	let fromMulticore = await get_diff(multicoreCmd);
 	let fromTrunk = await get_diff(trunkCmd);
