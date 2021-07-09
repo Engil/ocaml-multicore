@@ -28,7 +28,12 @@ async function main(github, context) {
 
     var message = "🐪 Hello, I am going to check how much this PR gets us closer to trunk.\n\n";
 
+    let fetch = await exec('git fetch origin 4.12+domains+effects');
+    let trunk = await exec('git remote add ocaml https://github.com/ocaml/ocaml.git');
+    let trunkk = await exec('git fetch ocaml trunk');
+
     let changed = await getChangedFiles();
+
     changed.pop(); // extra \n
 
 
