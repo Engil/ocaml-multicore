@@ -70,7 +70,7 @@ async function main(github, context) {
 |Removed |${multicoreRemoved}|${trunkRemoved}|
 |Score |${multicoreScore}|${trunkScore}|
 `;
-                let diff = await exec(`git diff HEAD ocaml/trunk -- ${i}`);
+	        let diff = await exec(`git diff --word-diff=porcelain HEAD ocaml/trunk -- ${i}`);
 	        let d = diff.stdout.replace("~", "\n");
                 let diff_message = `
 <details>
