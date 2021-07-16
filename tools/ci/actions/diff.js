@@ -73,9 +73,9 @@ async function main(github, context) {
                 let diff = await exec(`git diff HEAD ocaml/trunk -- ${i}`);
                 let diff_message = `
 <details>
-<summary> Diff for %{i} against trunk </summary>
+<summary> Diff for ${i} against trunk </summary>
 \`\`\`diff
-${diff}
+${diff.stdout}
 \`\`\`
 </details>
 `;
