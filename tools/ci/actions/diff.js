@@ -54,7 +54,6 @@ async function main(github, context) {
 	let fromTrunk = await get_diff(trunkCmd);
 
 	if (fromTrunk != undefined && fromMulticore != undefined) {
-	    var unchanged = true; // file did not exist in either remote
 
 	    let trunkAdded = parseInt(fromTrunk[0]);
 	    let trunkRemoved = parseInt(fromTrunk[1]);
@@ -66,7 +65,6 @@ async function main(github, context) {
 	    totalScoreTrunk = totalScoreTrunk + trunkScore;
 	    totalScoreMulticore = totalScoreMulticore + multicoreScore;
 
-	    if (!unchanged) {
 		let table =
 `|🟢 Added |${multicoreAddded}|${trunkAdded}|
 |🔴 Removed |${multicoreRemoved}|${trunkRemoved}|
@@ -84,7 +82,6 @@ ${diff}
 		console.log(diff_message);
 		console.log(table);
 	        message = message.concat(table + diff_message);
-	    };
 	}
     }
     message = message.concat(`Total score for the files changed in this PR: ${totalScoreTrunk}
