@@ -66,9 +66,9 @@ async function main(github, context) {
 	    totalScoreMulticore = totalScoreMulticore + multicoreScore;
 
 		let table =
-`|🟢 Added |${multicoreAddded}|${trunkAdded}|
-|🔴 Removed |${multicoreRemoved}|${trunkRemoved}|
-|💯 Score |${multicoreScore}|${trunkScore}|
+`|Added |${multicoreAdded}|${trunkAdded}|
+|Removed |${multicoreRemoved}|${trunkRemoved}|
+|Score |${multicoreScore}|${trunkScore}|
 `;
                 let diff = await exec(`git diff HEAD ocaml/trunk -- ${i}`);
                 let diff_message = `
