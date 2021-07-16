@@ -69,7 +69,7 @@ async function main(github, context) {
 	    if (!unchanged) {
 		let table =
 `|🟢 Added |${multicoreAddded}|${trunkAdded}|
-|🔴 Removed |${multicoreRemoved|${trunkRemoved}|
+|🔴 Removed |${multicoreRemoved}|${trunkRemoved}|
 |💯 Score |${multicoreScore}|${trunkScore|
 `;
                 let diff = await exec(`git diff HEAD ocaml/trunk -- ${i}`);
