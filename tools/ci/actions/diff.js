@@ -71,13 +71,16 @@ async function main(github, context) {
 |Score |${multicoreScore}|${trunkScore}|
 `;
 	        let diff = await exec(`git diff --word-diff=porcelain HEAD ocaml/trunk -- ${i}`);
-	        let d = diff.stdout.replace("~", "\n");
+	    let d = diff.stdout.split("~").join("");
                 let diff_message = `
 <details>
+
 <summary> Diff for ${i} against trunk </summary>
+
 \`\`\`diff
 ${d}
 \`\`\`
+
 </details>
 `;
 		console.log(diff_message);
