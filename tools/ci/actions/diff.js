@@ -81,7 +81,7 @@ ${diff}
 \`\`\`
 </details>
 `;
-	        message = message.concat(current + diff_message);
+	        message = message.concat(table + diff_message);
 	    };
 	}
     }
