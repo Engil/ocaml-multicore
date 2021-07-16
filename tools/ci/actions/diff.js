@@ -43,11 +43,6 @@ async function main(github, context) {
     changed.pop(); // extra \n
 
     for (const i of changed) {
-	// prelude
-	message = message.concat(`### ${i}
-| Compared to trunk | 4.12+domains+effects | ${github.head_ref} |
-|-|-|-|
-`);
 	let multicoreCmd = diff_cmd.concat(` ocaml/trunk origin/4.12+domains+effects ${i}`);
 	let trunkCmd = diff_cmd.concat(` ocaml/trunk ${i}`);
 	let fromMulticore = await get_diff(multicoreCmd);
@@ -65,15 +60,21 @@ async function main(github, context) {
 	    totalScoreTrunk = totalScoreTrunk + trunkScore;
 	    totalScoreMulticore = totalScoreMulticore + multicoreScore;
 
-		let table =
+
+	    let prelude =
+`### ${i}
+| Compared to trunk | 4.12+domains+effects | ${github.head_ref} |
+|-|-|-|
+`;
+	    let table =
 `|Added |${multicoreAdded}|${trunkAdded}|
 |Removed |${multicoreRemoved}|${trunkRemoved}|
 |Score |${multicoreScore}|${trunkScore}|
 
 `;
-	        let diff = await exec(`git diff HEAD ocaml/trunk -- ${i}`);
+	    let diff = await exec(`git diff HEAD ocaml/trunk -- ${i}`);
 	    let d = diff.stdout.split("~").join("");
-                let diff_message = `
+            let diff_message = `
 <details>
 
 <summary> Diff for ${i} against trunk </summary>
@@ -85,19 +86,13 @@ ${d}
 </details>
 
 `;
-		console.log(diff_message);
-		console.log(table);
-	        message = message.concat(table + diff_message);
+
+	    message = message.concat(prelude + table + diff_message);
+
+	} else { // file wasn't in either branches
+	    message = message.concat(`### ${i} wasn't in one of the two branches, skipped\n\n`);
 	}
     }
-    message = message.concat(`Total score for the files changed in this PR: ${totalScoreTrunk}
-Total score for the files changed in this PR, relative to Multicore: ${totalScoreMulticore}
-
-Evaluation: `);
-    if (totalScoreTrunk < totalScoreMulticore)
-	message = message.concat("🎉 Soon enough you will turn Multicore OCaml into trunk!");
-    else
-	message = message.concat("🔎 There is a lot of work to do, look for lines to match to trunk in grassy areas.");
 
     return await github.issues.createComment({
         issue_number: context.issue.number,
