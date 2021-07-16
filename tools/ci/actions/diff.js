@@ -81,6 +81,8 @@ ${diff}
 \`\`\`
 </details>
 `;
+		console.log(diff_message);
+		console.log(table);
 	        message = message.concat(table + diff_message);
 	    };
 	}
