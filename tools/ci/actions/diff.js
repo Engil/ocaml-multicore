@@ -28,31 +28,33 @@ async function main(github, context) {
     var totalScoreTrunk = 0;
     var totalScoreMulticore = 0;
 
-    var message = "🐪 Hello, I am going to check how much this PR gets us closer to trunk.\n\n";
+    var message = "🐪 Hello, I am going to check how much this PR gets us closer to trunk. (a lower score = closer to trunk!)\n\n";
 
     let fetch = await exec('git fetch origin 4.12+domains+effects');
     console.log(fetch);
-    let trunk = await exec('git remote add ocaml https://github.com/ocaml/ocaml.git');
-    console.log(trunk);
-    let trunkk = await exec('git fetch ocaml trunk');
-    console.log(trunkk);
+    let add_trunk = await exec('git remote add ocaml https://github.com/ocaml/ocaml.git');
+    console.log(add_trunk);
+    let fetch_trunk = await exec('git fetch ocaml trunk');
+    console.log(fetch_trunk);
 
     let changed = await getChangedFiles();
     console.log(changed);
 
     changed.pop(); // extra \n
 
-
-
     for (const i of changed) {
-
+	// prelude
+	message = message.concat(`### ${i}
+| Compared to trunk | 4.12+domains+effects | ${github.head_ref} |
+|-|-|-|
+`);
 	let multicoreCmd = diff_cmd.concat(` ocaml/trunk origin/4.12+domains+effects ${i}`);
 	let trunkCmd = diff_cmd.concat(` ocaml/trunk ${i}`);
 	let fromMulticore = await get_diff(multicoreCmd);
 	let fromTrunk = await get_diff(trunkCmd);
 
 	if (fromTrunk != undefined && fromMulticore != undefined) {
-	    var unchanged = true;
+	    var unchanged = true; // file did not exist in either remote
 
 	    let trunkAdded = parseInt(fromTrunk[0]);
 	    let trunkRemoved = parseInt(fromTrunk[1]);
@@ -64,34 +66,22 @@ async function main(github, context) {
 	    totalScoreTrunk = totalScoreTrunk + trunkScore;
 	    totalScoreMulticore = totalScoreMulticore + multicoreScore;
 
-	    if (trunkScore < multicoreScore) {
-		unchanged = false;
-		let header = `✅ Good! ${i} is getting closer to trunk!\n`;
-		message = message.concat(header);
-	    }
-
-	    else if (trunkScore > multicoreScore) {
-		unchanged = false;
-		let header = `❌ Errm! ${i} is straying away from trunk!\n`;
-		message = message.concat(header);
-	    }
-
-	    else {
-		unchanged = true;
-		let header = `👍 Congrats! ${i} is now the same as trunk!\n\n`;
-		message = message.concat(header);
-	    }
-
 	    if (!unchanged) {
-		let current =`Added from this PR compared to trunk: ${trunkAdded}
-Removed from this PR compated to trunk: ${trunkRemoved}
-Added from multicore compared to trunk: ${multicoreAdded}
-Removed from multicore compared to trunk: ${multicoreRemoved}
-Current score on 4.12+domains+effects: ${multicoreScore}
-This PR's score (0 is no change on this file): ${trunkScore}
-
+		let table =
+`|🟢 Added |${multicoreAddded}|${trunkAdded}|
+|🔴 Removed |${multicoreRemoved|${trunkRemoved}|
+|💯 Score |${multicoreScore}|${trunkScore|
 `;
-	    message = message.concat(current);
+                let diff = await exec(`git diff HEAD ocaml/trunk -- ${i}`);
+                let diff_message = `
+<details>
+<summary> Diff for %{i} against trunk </summary>
+\`\`\`diff
+${diff}
+\`\`\`
+</details>
+`;
+	        message = message.concat(current + diff_message);
 	    };
 	}
     }
