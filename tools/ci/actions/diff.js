@@ -71,11 +71,12 @@ async function main(github, context) {
 |Score |${multicoreScore}|${trunkScore}|
 `;
                 let diff = await exec(`git diff HEAD ocaml/trunk -- ${i}`);
+	        let d = diff.stdout.replace("~", "\n");
                 let diff_message = `
 <details>
 <summary> Diff for ${i} against trunk </summary>
 \`\`\`diff
-${diff.stdout}
+${d}
 \`\`\`
 </details>
 `;
